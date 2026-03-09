@@ -1,0 +1,1813 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ローカルAIエージェント — Dify + Ollama + MCP</title>
+  <meta name="description" content="完全ローカルで動作するAIエージェント。ファイル操作、要約、議事録作成、チャットが可能。">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Noto+Sans+JP:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+    rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.0/marked.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+  <style>
+    /* ═══════════════════════════════════════════════════════
+       Design System — Tokens
+       ═══════════════════════════════════════════════════════ */
+    :root {
+      /* Background */
+      --bg-base: #07080d;
+      --bg-surface: rgba(16, 18, 27, 0.85);
+      --bg-surface-raised: rgba(25, 28, 42, 0.75);
+      --bg-surface-overlay: rgba(35, 39, 58, 0.65);
+      --bg-glass: rgba(255, 255, 255, 0.03);
+      --bg-glass-hover: rgba(255, 255, 255, 0.06);
+      --bg-input: rgba(12, 13, 20, 0.7);
+
+      /* Accent */
+      --accent-primary: #7c5cfc;
+      --accent-primary-hover: #9580ff;
+      --accent-primary-dim: rgba(124, 92, 252, 0.12);
+      --accent-primary-glow: rgba(124, 92, 252, 0.35);
+      --accent-secondary: #50e3c2;
+      --accent-gradient: linear-gradient(135deg, #7c5cfc 0%, #50e3c2 100%);
+
+      /* Text */
+      --text-100: #f0f0f5;
+      --text-200: #c9c9d4;
+      --text-300: #8e8ea0;
+      --text-400: #5a5a72;
+
+      /* Semantic */
+      --success: #34d399;
+      --success-dim: rgba(52, 211, 153, 0.15);
+      --warning: #fbbf24;
+      --warning-dim: rgba(251, 191, 36, 0.15);
+      --error: #f87171;
+      --error-dim: rgba(248, 113, 113, 0.15);
+
+      /* Border */
+      --border: rgba(255, 255, 255, 0.06);
+      --border-hover: rgba(255, 255, 255, 0.12);
+      --border-accent: rgba(124, 92, 252, 0.3);
+
+      /* Misc */
+      --radius-sm: 8px;
+      --radius: 14px;
+      --radius-lg: 20px;
+      --radius-full: 9999px;
+      --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.2);
+      --shadow: 0 4px 24px rgba(0, 0, 0, 0.35);
+      --shadow-lg: 0 12px 48px rgba(0, 0, 0, 0.5);
+      --blur: blur(20px);
+      --blur-heavy: blur(40px);
+      --transition: 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+      --transition-slow: 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+
+      /* Sidebar */
+      --sidebar-width: 300px;
+    }
+
+    /* ═══════════════════════════════════════════════════════
+       Reset & Base
+       ═══════════════════════════════════════════════════════ */
+    *,
+    *::before,
+    *::after {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    html {
+      font-size: 15px;
+    }
+
+    body {
+      font-family: 'Inter', 'Noto Sans JP', -apple-system, sans-serif;
+      background: var(--bg-base);
+      color: var(--text-100);
+      height: 100vh;
+      display: flex;
+      overflow: hidden;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* Animated gradient background */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background:
+        radial-gradient(ellipse 80% 50% at 20% 20%, rgba(124, 92, 252, 0.08) 0%, transparent 70%),
+        radial-gradient(ellipse 60% 40% at 80% 80%, rgba(80, 227, 194, 0.06) 0%, transparent 70%),
+        radial-gradient(ellipse 50% 50% at 50% 50%, rgba(124, 92, 252, 0.03) 0%, transparent 70%);
+      pointer-events: none;
+      z-index: 0;
+      animation: bgShift 20s ease-in-out infinite alternate;
+    }
+
+    @keyframes bgShift {
+      0% {
+        opacity: 1;
+      }
+
+      50% {
+        opacity: 0.7;
+      }
+
+      100% {
+        opacity: 1;
+      }
+    }
+
+    /* ═══════════════════════════════════════════════════════
+       Scrollbar
+       ═══════════════════════════════════════════════════════ */
+    ::-webkit-scrollbar {
+      width: 5px;
+    }
+
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
+    ::-webkit-scrollbar-thumb {
+      background: var(--text-400);
+      border-radius: 3px;
+    }
+
+    ::-webkit-scrollbar-thumb:hover {
+      background: var(--text-300);
+    }
+
+    /* ═══════════════════════════════════════════════════════
+       SIDEBAR
+       ═══════════════════════════════════════════════════════ */
+    .sidebar {
+      width: var(--sidebar-width);
+      background: var(--bg-surface);
+      backdrop-filter: var(--blur-heavy);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      flex-shrink: 0;
+      z-index: 100;
+      transition: transform var(--transition-slow), opacity var(--transition-slow);
+      position: relative;
+    }
+
+    .sidebar-header {
+      padding: 22px 20px 16px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .sidebar-header .logo {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .sidebar-header .logo-icon {
+      width: 36px;
+      height: 36px;
+      background: var(--accent-gradient);
+      border-radius: var(--radius-sm);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+      box-shadow: 0 4px 16px var(--accent-primary-glow);
+    }
+
+    .sidebar-header .logo-text h1 {
+      font-size: 14px;
+      font-weight: 600;
+      letter-spacing: -0.02em;
+    }
+
+    .sidebar-header .logo-text p {
+      font-size: 11px;
+      color: var(--text-300);
+      margin-top: 1px;
+    }
+
+    .btn-new-chat {
+      width: 100%;
+      padding: 10px 16px;
+      margin: 12px 0 4px;
+      background: var(--accent-primary-dim);
+      border: 1px solid var(--border-accent);
+      border-radius: var(--radius-sm);
+      color: var(--accent-primary-hover);
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all var(--transition);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .btn-new-chat:hover {
+      background: rgba(124, 92, 252, 0.2);
+      border-color: var(--accent-primary);
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px var(--accent-primary-glow);
+    }
+
+    /* Mode Tabs */
+    .mode-tabs {
+      padding: 12px 12px 0;
+      display: flex;
+      gap: 4px;
+    }
+
+    .mode-tab {
+      flex: 1;
+      padding: 9px 8px;
+      background: var(--bg-glass);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      color: var(--text-300);
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      text-align: center;
+      transition: all var(--transition);
+    }
+
+    .mode-tab.active {
+      background: var(--accent-primary-dim);
+      border-color: var(--border-accent);
+      color: var(--accent-primary-hover);
+    }
+
+    .mode-tab:hover:not(.active) {
+      background: var(--bg-glass-hover);
+      color: var(--text-200);
+    }
+
+    /* Status Grid */
+    .sidebar-section {
+      padding: 16px 20px 6px;
+      font-size: 10px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--text-400);
+    }
+
+    .status-grid {
+      padding: 0 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .status-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 7px 12px;
+      border-radius: var(--radius-sm);
+      font-size: 12px;
+      color: var(--text-200);
+      transition: background var(--transition);
+    }
+
+    .status-item:hover {
+      background: var(--bg-glass-hover);
+    }
+
+    .status-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      flex-shrink: 0;
+      transition: all var(--transition);
+    }
+
+    .status-dot.running {
+      background: var(--success);
+      box-shadow: 0 0 8px var(--success);
+    }
+
+    .status-dot.offline {
+      background: var(--error);
+      opacity: 0.7;
+    }
+
+    .status-dot.checking {
+      background: var(--warning);
+      animation: pulse 1.8s ease-in-out infinite;
+    }
+
+    @keyframes pulse {
+
+      0%,
+      100% {
+        opacity: 1;
+        transform: scale(1);
+      }
+
+      50% {
+        opacity: 0.3;
+        transform: scale(0.8);
+      }
+    }
+
+    /* Settings */
+    .settings-form {
+      padding: 0 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .form-group label {
+      display: block;
+      font-size: 11px;
+      color: var(--text-300);
+      margin-bottom: 4px;
+      font-weight: 500;
+    }
+
+    .form-group input,
+    .form-group select {
+      width: 100%;
+      padding: 8px 12px;
+      background: var(--bg-input);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      color: var(--text-100);
+      font-size: 12px;
+      font-family: inherit;
+      outline: none;
+      transition: all var(--transition);
+    }
+
+    .form-group input:focus,
+    .form-group select:focus {
+      border-color: var(--accent-primary);
+      box-shadow: 0 0 0 3px var(--accent-primary-dim);
+    }
+
+    .form-group input::placeholder {
+      color: var(--text-400);
+    }
+
+    /* Conversation History */
+    .history-list {
+      flex: 1;
+      overflow-y: auto;
+      padding: 4px 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .history-item {
+      padding: 10px 12px;
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      font-size: 12px;
+      color: var(--text-200);
+      transition: all var(--transition);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      position: relative;
+    }
+
+    .history-item:hover {
+      background: var(--bg-glass-hover);
+    }
+
+    .history-item.active {
+      background: var(--accent-primary-dim);
+      color: var(--accent-primary-hover);
+    }
+
+    .history-item .icon {
+      opacity: 0.5;
+      font-size: 14px;
+    }
+
+    .history-item .title {
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .history-item .delete-btn {
+      opacity: 0;
+      background: none;
+      border: none;
+      color: var(--error);
+      cursor: pointer;
+      font-size: 14px;
+      padding: 2px 4px;
+      border-radius: 4px;
+      transition: opacity var(--transition);
+    }
+
+    .history-item:hover .delete-btn {
+      opacity: 0.7;
+    }
+
+    .history-item .delete-btn:hover {
+      opacity: 1;
+      background: var(--error-dim);
+    }
+
+    /* Sidebar Footer */
+    .sidebar-footer {
+      padding: 14px 16px;
+      border-top: 1px solid var(--border);
+      font-size: 10px;
+      color: var(--text-400);
+      text-align: center;
+      line-height: 1.6;
+    }
+
+    /* ═══════════════════════════════════════════════════════
+       MAIN
+       ═══════════════════════════════════════════════════════ */
+    .main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+      position: relative;
+      z-index: 1;
+    }
+
+    .main-header {
+      padding: 14px 24px;
+      border-bottom: 1px solid var(--border);
+      background: var(--bg-surface);
+      backdrop-filter: var(--blur);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .main-header-left {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .btn-toggle-sidebar {
+      display: none;
+      width: 36px;
+      height: 36px;
+      background: var(--bg-glass);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      color: var(--text-200);
+      font-size: 18px;
+      cursor: pointer;
+      align-items: center;
+      justify-content: center;
+      transition: all var(--transition);
+    }
+
+    .btn-toggle-sidebar:hover {
+      background: var(--bg-glass-hover);
+    }
+
+    .main-header h2 {
+      font-size: 15px;
+      font-weight: 500;
+      letter-spacing: -0.01em;
+    }
+
+    .main-header-right {
+      display: flex;
+      gap: 8px;
+    }
+
+    .btn-icon {
+      width: 34px;
+      height: 34px;
+      background: var(--bg-glass);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      color: var(--text-300);
+      font-size: 14px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all var(--transition);
+    }
+
+    .btn-icon:hover {
+      background: var(--bg-glass-hover);
+      color: var(--text-100);
+      border-color: var(--border-hover);
+    }
+
+    /* ═══════════════════════════════════════════════════════
+       CHAT AREA
+       ═══════════════════════════════════════════════════════ */
+    .chat-area {
+      flex: 1;
+      overflow-y: auto;
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    .chat-area.hidden {
+      display: none;
+    }
+
+    /* Welcome Screen */
+    .welcome-screen {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      gap: 24px;
+      padding: 40px;
+      animation: fadeIn 0.6s ease;
+    }
+
+    @keyframes fadeIn {
+      from {
+        opacity: 0;
+        transform: translateY(12px);
+      }
+
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    .welcome-icon {
+      width: 72px;
+      height: 72px;
+      background: var(--accent-gradient);
+      border-radius: var(--radius-lg);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 32px;
+      box-shadow: 0 8px 32px var(--accent-primary-glow);
+      animation: floatIcon 4s ease-in-out infinite;
+    }
+
+    @keyframes floatIcon {
+
+      0%,
+      100% {
+        transform: translateY(0);
+      }
+
+      50% {
+        transform: translateY(-8px);
+      }
+    }
+
+    .welcome-screen h3 {
+      font-size: 22px;
+      font-weight: 600;
+      background: var(--accent-gradient);
+      background-clip: text;
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      letter-spacing: -0.02em;
+    }
+
+    .welcome-screen p {
+      font-size: 14px;
+      color: var(--text-300);
+      max-width: 420px;
+      line-height: 1.7;
+    }
+
+    .feature-cards {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 12px;
+      max-width: 460px;
+      width: 100%;
+    }
+
+    .feature-card {
+      padding: 16px;
+      background: var(--bg-surface-raised);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      text-align: left;
+      cursor: pointer;
+      transition: all var(--transition);
+    }
+
+    .feature-card:hover {
+      border-color: var(--border-accent);
+      background: var(--bg-surface-overlay);
+      transform: translateY(-2px);
+      box-shadow: var(--shadow-sm);
+    }
+
+    .feature-card .icon {
+      font-size: 20px;
+      margin-bottom: 8px;
+    }
+
+    .feature-card .label {
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--text-200);
+    }
+
+    .feature-card .desc {
+      font-size: 11px;
+      color: var(--text-400);
+      margin-top: 3px;
+    }
+
+    /* Messages */
+    .message {
+      max-width: 82%;
+      animation: msgIn 0.3s ease;
+      position: relative;
+    }
+
+    @keyframes msgIn {
+      from {
+        opacity: 0;
+        transform: translateY(8px);
+      }
+
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    .message.user {
+      align-self: flex-end;
+      padding: 12px 18px;
+      background: var(--accent-primary);
+      color: white;
+      border-radius: var(--radius) var(--radius) 4px var(--radius);
+      font-size: 14px;
+      line-height: 1.6;
+      box-shadow: 0 4px 16px var(--accent-primary-glow);
+    }
+
+    .message.assistant {
+      align-self: flex-start;
+      padding: 16px 20px;
+      background: var(--bg-surface-raised);
+      border: 1px solid var(--border);
+      border-radius: var(--radius) var(--radius) var(--radius) 4px;
+      backdrop-filter: var(--blur);
+    }
+
+    .message.assistant .role-label {
+      font-size: 10px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--accent-secondary);
+      margin-bottom: 8px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .message.assistant .role-label::before {
+      content: '';
+      width: 6px;
+      height: 6px;
+      background: var(--accent-secondary);
+      border-radius: 50%;
+      box-shadow: 0 0 8px var(--accent-secondary);
+    }
+
+    .message.assistant .content {
+      font-size: 14px;
+      line-height: 1.8;
+      color: var(--text-200);
+    }
+
+    .message.assistant .copy-btn {
+      position: absolute;
+      top: 12px;
+      right: 12px;
+      opacity: 0;
+      background: var(--bg-surface-overlay);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text-300);
+      font-size: 12px;
+      padding: 4px 8px;
+      cursor: pointer;
+      transition: all var(--transition);
+    }
+
+    .message.assistant:hover .copy-btn {
+      opacity: 1;
+    }
+
+    .message.assistant .copy-btn:hover {
+      background: var(--accent-primary-dim);
+      color: var(--accent-primary-hover);
+    }
+
+    .message.system {
+      align-self: center;
+      padding: 8px 18px;
+      background: var(--bg-surface-raised);
+      border: 1px solid var(--border);
+      color: var(--text-300);
+      font-size: 12px;
+      border-radius: var(--radius-full);
+    }
+
+    /* Markdown Styles in assistant messages */
+    .message.assistant .content h1,
+    .message.assistant .content h2,
+    .message.assistant .content h3 {
+      color: var(--text-100);
+      margin: 16px 0 8px;
+      font-weight: 600;
+    }
+
+    .message.assistant .content h1 {
+      font-size: 18px;
+    }
+
+    .message.assistant .content h2 {
+      font-size: 16px;
+    }
+
+    .message.assistant .content h3 {
+      font-size: 14px;
+    }
+
+    .message.assistant .content p {
+      margin: 6px 0;
+    }
+
+    .message.assistant .content ul,
+    .message.assistant .content ol {
+      margin: 8px 0;
+      padding-left: 20px;
+    }
+
+    .message.assistant .content li {
+      margin: 4px 0;
+    }
+
+    .message.assistant .content code {
+      background: var(--bg-input);
+      padding: 2px 7px;
+      border-radius: 5px;
+      font-size: 12px;
+      font-family: 'JetBrains Mono', monospace;
+      color: var(--accent-secondary);
+    }
+
+    .message.assistant .content pre {
+      background: var(--bg-base);
+      padding: 16px;
+      border-radius: var(--radius-sm);
+      overflow-x: auto;
+      margin: 12px 0;
+      border: 1px solid var(--border);
+      position: relative;
+    }
+
+    .message.assistant .content pre code {
+      background: none;
+      padding: 0;
+      color: var(--text-200);
+      font-size: 13px;
+    }
+
+    .message.assistant .content blockquote {
+      border-left: 3px solid var(--accent-primary);
+      padding: 8px 16px;
+      margin: 8px 0;
+      background: var(--accent-primary-dim);
+      border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+      color: var(--text-200);
+    }
+
+    .message.assistant .content table {
+      border-collapse: collapse;
+      width: 100%;
+      margin: 12px 0;
+      font-size: 13px;
+    }
+
+    .message.assistant .content th,
+    .message.assistant .content td {
+      border: 1px solid var(--border);
+      padding: 8px 12px;
+      text-align: left;
+    }
+
+    .message.assistant .content th {
+      background: var(--bg-surface-overlay);
+      font-weight: 600;
+      color: var(--text-100);
+    }
+
+    .message.assistant .content a {
+      color: var(--accent-primary-hover);
+      text-decoration: none;
+    }
+
+    .message.assistant .content a:hover {
+      text-decoration: underline;
+    }
+
+    .message.assistant .content hr {
+      border: none;
+      border-top: 1px solid var(--border);
+      margin: 16px 0;
+    }
+
+    /* Typing Indicator */
+    .typing-indicator {
+      display: flex;
+      gap: 5px;
+      padding: 6px 0;
+    }
+
+    .typing-indicator span {
+      width: 7px;
+      height: 7px;
+      background: var(--accent-primary);
+      border-radius: 50%;
+      animation: typingBounce 1.4s infinite;
+    }
+
+    .typing-indicator span:nth-child(2) {
+      animation-delay: 0.16s;
+    }
+
+    .typing-indicator span:nth-child(3) {
+      animation-delay: 0.32s;
+    }
+
+    @keyframes typingBounce {
+
+      0%,
+      60%,
+      100% {
+        transform: translateY(0);
+        opacity: 0.4;
+      }
+
+      30% {
+        transform: translateY(-8px);
+        opacity: 1;
+      }
+    }
+
+    /* ═══════════════════════════════════════════════════════
+       WORKFLOW PANEL
+       ═══════════════════════════════════════════════════════ */
+    .workflow-panel {
+      display: none;
+      flex: 1;
+      flex-direction: column;
+      padding: 28px;
+      overflow-y: auto;
+      gap: 20px;
+    }
+
+    .workflow-panel.active {
+      display: flex;
+    }
+
+    .wf-header {
+      margin-bottom: 4px;
+    }
+
+    .wf-header h3 {
+      font-size: 18px;
+      font-weight: 600;
+    }
+
+    .wf-header p {
+      font-size: 13px;
+      color: var(--text-300);
+      margin-top: 4px;
+    }
+
+    .wf-form-group {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .wf-form-group label {
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--text-200);
+    }
+
+    .wf-form-group textarea,
+    .wf-form-group input,
+    .wf-form-group select {
+      width: 100%;
+      padding: 12px 16px;
+      background: var(--bg-surface-raised);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      color: var(--text-100);
+      font-size: 14px;
+      font-family: inherit;
+      outline: none;
+      resize: vertical;
+      transition: all var(--transition);
+    }
+
+    .wf-form-group textarea {
+      min-height: 180px;
+    }
+
+    .wf-form-group textarea:focus,
+    .wf-form-group input:focus,
+    .wf-form-group select:focus {
+      border-color: var(--accent-primary);
+      box-shadow: 0 0 0 3px var(--accent-primary-dim);
+    }
+
+    .wf-form-group textarea::placeholder,
+    .wf-form-group input::placeholder {
+      color: var(--text-400);
+    }
+
+    .btn-run {
+      padding: 12px 32px;
+      background: var(--accent-gradient);
+      border: none;
+      border-radius: var(--radius-sm);
+      color: white;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all var(--transition);
+      align-self: flex-start;
+      box-shadow: 0 4px 16px var(--accent-primary-glow);
+    }
+
+    .btn-run:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 6px 24px var(--accent-primary-glow);
+    }
+
+    .btn-run:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    .wf-result {
+      padding: 20px;
+      background: var(--bg-surface-raised);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      font-size: 14px;
+      line-height: 1.8;
+      display: none;
+    }
+
+    .wf-result.visible {
+      display: block;
+    }
+
+    /* ═══════════════════════════════════════════════════════
+       INPUT AREA
+       ═══════════════════════════════════════════════════════ */
+    .input-area {
+      padding: 16px 24px 20px;
+      border-top: 1px solid var(--border);
+      background: var(--bg-surface);
+      backdrop-filter: var(--blur);
+    }
+
+    .input-wrapper {
+      display: flex;
+      gap: 10px;
+      align-items: flex-end;
+      max-width: 800px;
+      margin: 0 auto;
+    }
+
+    .input-wrapper textarea {
+      flex: 1;
+      padding: 13px 18px;
+      background: var(--bg-input);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      color: var(--text-100);
+      font-size: 14px;
+      font-family: inherit;
+      resize: none;
+      outline: none;
+      min-height: 48px;
+      max-height: 200px;
+      transition: all var(--transition);
+      line-height: 1.5;
+    }
+
+    .input-wrapper textarea:focus {
+      border-color: var(--accent-primary);
+      box-shadow: 0 0 0 3px var(--accent-primary-dim);
+    }
+
+    .input-wrapper textarea::placeholder {
+      color: var(--text-400);
+    }
+
+    .btn-send {
+      width: 48px;
+      height: 48px;
+      background: var(--accent-gradient);
+      border: none;
+      border-radius: var(--radius);
+      color: white;
+      font-size: 18px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all var(--transition);
+      flex-shrink: 0;
+      box-shadow: 0 4px 12px var(--accent-primary-glow);
+    }
+
+    .btn-send:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 6px 20px var(--accent-primary-glow);
+    }
+
+    .btn-send:disabled {
+      opacity: 0.3;
+      cursor: not-allowed;
+      transform: none;
+      box-shadow: none;
+    }
+
+    .input-hint {
+      text-align: center;
+      font-size: 11px;
+      color: var(--text-400);
+      margin-top: 8px;
+    }
+
+    /* ═══════════════════════════════════════════════════════
+       RESPONSIVE
+       ═══════════════════════════════════════════════════════ */
+    @media (max-width: 768px) {
+      .sidebar {
+        position: fixed;
+        left: 0;
+        top: 0;
+        bottom: 0;
+        transform: translateX(-100%);
+        z-index: 1000;
+        box-shadow: var(--shadow-lg);
+      }
+
+      .sidebar.open {
+        transform: translateX(0);
+      }
+
+      .sidebar-overlay {
+        display: none;
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.5);
+        z-index: 999;
+      }
+
+      .sidebar-overlay.active {
+        display: block;
+      }
+
+      .btn-toggle-sidebar {
+        display: flex;
+      }
+
+      .feature-cards {
+        grid-template-columns: 1fr;
+      }
+
+      .message {
+        max-width: 92%;
+      }
+    }
+
+    .think-accordion {
+      margin-bottom: 15px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      background: var(--bg-surface-raised);
+      overflow: hidden;
+    }
+
+    .think-accordion summary {
+      padding: 10px 15px;
+      cursor: pointer;
+      font-size: 0.9em;
+      color: var(--text-300);
+      user-select: none;
+      background: var(--bg-glass);
+      outline: none;
+    }
+
+    .think-accordion summary:hover {
+      background: var(--bg-glass-hover);
+      color: var(--text-200);
+    }
+
+    .think-accordion[open] summary {
+      border-bottom: 1px solid var(--border);
+    }
+
+    .think-accordion .think-content {
+      padding: 15px;
+      margin: 0;
+      color: var(--text-400);
+      font-size: 0.9em;
+      white-space: pre-wrap;
+    }
+
+    .blinking-cursor {
+      display: inline-block;
+      width: 8px;
+      height: 1.2em;
+      background-color: var(--text-200);
+      vertical-align: middle;
+      animation: blink 1s step-end infinite;
+      margin-left: 2px;
+    }
+
+    @keyframes blink {
+
+      0%,
+      100% {
+        opacity: 1;
+      }
+
+      50% {
+        opacity: 0;
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <!-- サイドバーオーバーレイ (モバイル) -->
+  <div class="sidebar-overlay" id="sidebarOverlay" onclick="toggleSidebar()"></div>
+
+  <!-- ═══ サイドバー ═══ -->
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+      <div class="logo">
+        <div class="logo-icon">🤖</div>
+        <div class="logo-text">
+          <h1>AI Agent</h1>
+          <p>ローカルLLM + MCP + Dify</p>
+        </div>
+      </div>
+      <button class="btn-new-chat" onclick="newChat()">
+        <span>＋</span> 新しい会話
+      </button>
+    </div>
+
+    <div class="mode-tabs">
+      <button class="mode-tab active" data-mode="use" onclick="switchMode('use')">💬 利用画面</button>
+      <button class="mode-tab" data-mode="admin" onclick="switchMode('admin')">⚙️ 管理画面</button>
+    </div>
+
+    <div class="sidebar-section">会話履歴</div>
+    <div class="history-list" id="historyList"></div>
+
+    <div class="sidebar-footer">
+      gpt-oss:20b (MXFP4)<br>
+      完全ローカル動作 · MCP対応 · Dify
+    </div>
+  </aside>
+
+  <!-- ═══ メインエリア ═══ -->
+  <main class="main">
+    <div class="main-header">
+      <div class="main-header-left">
+        <button class="btn-toggle-sidebar" id="btnToggleSidebar" onclick="toggleSidebar()">☰</button>
+        <h2 id="mainTitle">チャット</h2>
+      </div>
+      <div class="main-header-right">
+        <button class="btn-icon" onclick="clearChat()" title="会話をクリア">🗑</button>
+      </div>
+    </div>
+
+    <!-- チャットモード -->
+    <div class="chat-area" id="chatArea">
+      <div class="welcome-screen" id="welcomeScreen">
+        <div class="welcome-icon">🤖</div>
+        <h3>ローカルAIエージェント</h3>
+        <p>
+          Dify + Ollama + MCP で構築された完全ローカルAI。<br>
+          ファイル操作、要約、議事録作成、自由な対話が可能です。
+        </p>
+        <div class="feature-cards">
+          <div class="feature-card" onclick="insertPrompt('~/Documents の中身を一覧で見せて')">
+            <div class="icon">📁</div>
+            <div class="label">ファイル操作</div>
+            <div class="desc">読み書き・一覧・検索</div>
+          </div>
+          <div class="feature-card" onclick="insertPrompt('この内容を要約してください')">
+            <div class="icon">📝</div>
+            <div class="label">文書作成</div>
+            <div class="desc">議事録・レポート・要約</div>
+          </div>
+          <div class="feature-card" onclick="insertPrompt('このテキストを分析して傾向をまとめて')">
+            <div class="icon">🔍</div>
+            <div class="label">分析</div>
+            <div class="desc">テキスト分析・データ整理</div>
+          </div>
+          <div class="feature-card" onclick="insertPrompt('JavaScriptの非同期処理について教えて')">
+            <div class="icon">💬</div>
+            <div class="label">自由な対話</div>
+            <div class="desc">質問・相談・ブレスト</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 管理画面モード (Admin) -->
+    <div class="workflow-panel" id="adminPanel">
+      <div class="wf-header">
+        <h3>⚙️ 管理画面 (Admin Settings)</h3>
+        <p>システムの状態確認やAPIキーなどの接続設定を行います。</p>
+      </div>
+
+      <div class="wf-form-group">
+        <label>サービス状態</label>
+        <div class="status-grid" id="statusGrid" style="display:flex; gap:16px; margin-top:8px;">
+          <div class="status-item">
+            <span>Ollama</span>
+            <span class="status-dot checking" id="status-ollama"></span>
+          </div>
+          <div class="status-item">
+            <span>Dify</span>
+            <span class="status-dot checking" id="status-dify"></span>
+          </div>
+          <div class="status-item">
+            <span>MCP Server</span>
+            <span class="status-dot checking" id="status-mcp"></span>
+          </div>
+        </div>
+      </div>
+
+      <hr style="border:none; border-top:1px solid var(--border); margin:24px 0;">
+
+      <div class="settings-form" style="max-width:500px">
+        <div class="form-group" style="margin-bottom:16px">
+          <label>Dify チャット API Key</label>
+          <input type="password" id="apiKey" placeholder="app-xxxxxxxx" onchange="saveSettings()"
+            style="width:100%; padding:10px; border-radius:8px; border:1px solid var(--border); background:var(--bg-input); color:var(--text-100);">
+        </div>
+        <div class="form-group" style="margin-bottom:16px">
+          <label>Dify URL</label>
+          <input type="text" id="difyUrl" placeholder="http://localhost/v1" onchange="saveSettings()"
+            style="width:100%; padding:10px; border-radius:8px; border:1px solid var(--border); background:var(--bg-input); color:var(--text-100);">
+        </div>
+        <div class="form-group" style="margin-bottom:16px">
+          <label>ワークフロー API Key (オプション)</label>
+          <input type="password" id="wfApiKey" placeholder="app-xxxxxxxx" onchange="saveSettings()"
+            style="width:100%; padding:10px; border-radius:8px; border:1px solid var(--border); background:var(--bg-input); color:var(--text-100);">
+        </div>
+        <p style="color:var(--text-300); font-size:12px; margin-top:8px;">
+          ※APIキーはブラウザに保存され、通信時に使用されます。<br>未入力の場合はサーバー側(.env)のデフォルトキーが試行されます。</p>
+      </div>
+    </div>
+
+    <!-- 入力エリア -->
+    <div class="input-area" id="inputArea">
+      <div style="display:flex; justify-content:space-between; align-items:flex-end; gap:8px;">
+        <div style="flex-shrink:0; display:flex; gap:8px;">
+          <select id="activeTool" onchange="handleToolChange()"
+            style="padding:10px; border-radius:8px; border:1px solid var(--border-accent); background:var(--bg-surface-raised); color:var(--text-100); outline:none; font-family:inherit; cursor:pointer;">
+            <option value="chat">🤖 標準チャット</option>
+            <option value="mcp">📁 MCP機能</option>
+            <option value="minutes">📝 議事録作成</option>
+          </select>
+          <select id="modelSelect"
+            style="padding:10px; border-radius:8px; border:1px solid var(--border); background:var(--bg-surface-raised); color:var(--text-100); outline:none; font-family:inherit; cursor:pointer; max-width:180px;">
+            <option value="dify-default">Dify デフォルト設定</option>
+          </select>
+        </div>
+        <div class="input-wrapper" style="flex-grow:1; margin:0;">
+          <textarea id="messageInput" placeholder="メッセージを入力..." rows="1" onkeydown="handleKeyDown(event)"></textarea>
+          <button class="btn-send" id="btnSend" onclick="sendMessage()">➤</button>
+        </div>
+      </div>
+      <div class="input-hint">Shift + Enter で改行 · Enter で送信</div>
+    </div>
+  </main>
+
+  <script>
+    // ══════════════════════════════════════════
+    // Marked.js Configuration
+    // ══════════════════════════════════════════
+    marked.setOptions({
+      highlight: (code, lang) => {
+        if (lang && hljs.getLanguage(lang)) {
+          return hljs.highlight(code, { language: lang }).value;
+        }
+        return hljs.highlightAuto(code).value;
+      },
+      breaks: true,
+      gfm: true,
+    });
+
+    // ══════════════════════════════════════════
+    // State
+    // ══════════════════════════════════════════
+    let conversationId = '';
+    let isStreaming = false;
+    let currentMode = 'chat';
+    let chatMessages = [];  // { role, content }
+    let currentConvId = null;  // local storage conversation id
+
+    // ══════════════════════════════════════════
+    // Settings
+    // ══════════════════════════════════════════
+    function loadSettings() {
+      const s = JSON.parse(localStorage.getItem('ai-agent-settings') || '{}');
+      if (s.apiKey) document.getElementById('apiKey').value = s.apiKey;
+      if (s.difyUrl) document.getElementById('difyUrl').value = s.difyUrl;
+      if (s.wfApiKey) document.getElementById('wfApiKey').value = s.wfApiKey;
+    }
+
+    function saveSettings() {
+      localStorage.setItem('ai-agent-settings', JSON.stringify({
+        apiKey: document.getElementById('apiKey').value,
+        difyUrl: document.getElementById('difyUrl').value,
+        wfApiKey: document.getElementById('wfApiKey').value,
+      }));
+    }
+
+    // ══════════════════════════════════════════
+    // Sidebar Toggle (Responsive)
+    // ══════════════════════════════════════════
+    function toggleSidebar() {
+      document.getElementById('sidebar').classList.toggle('open');
+      document.getElementById('sidebarOverlay').classList.toggle('active');
+    }
+
+    // ══════════════════════════════════════════
+    // Mode Switch
+    // ══════════════════════════════════════════
+    function switchMode(mode) {
+      currentMode = mode;
+      document.querySelectorAll('.mode-tab').forEach(t => t.classList.remove('active'));
+      const tab = document.querySelector(`[data-mode="${mode}"]`);
+      if (tab) tab.classList.add('active');
+
+      const chatArea = document.getElementById('chatArea');
+      const adminPanel = document.getElementById('adminPanel');
+      const inputArea = document.getElementById('inputArea');
+      const title = document.getElementById('mainTitle');
+
+      if (mode === 'use') {
+        chatArea.classList.remove('hidden');
+        adminPanel.classList.remove('active');
+        inputArea.style.display = '';
+        title.textContent = '統合チャット';
+      } else if (mode === 'admin') {
+        chatArea.classList.add('hidden');
+        adminPanel.classList.add('active');
+        inputArea.style.display = 'none';
+        title.textContent = '管理画面';
+      }
+
+      // Close sidebar on mobile after mode switch
+      if (window.innerWidth <= 768) {
+        document.getElementById('sidebar').classList.remove('open');
+        document.getElementById('sidebarOverlay').classList.remove('active');
+      }
+    }
+
+    // ══════════════════════════════════════════
+    // Health Check
+    // ══════════════════════════════════════════
+    async function checkHealth() {
+      try {
+        const res = await fetch('/api/health');
+        const data = await res.json();
+        for (const [service, status] of Object.entries(data)) {
+          const dot = document.getElementById(`status-${service}`);
+          if (dot) dot.className = `status-dot ${status}`;
+        }
+      } catch {
+        document.querySelectorAll('.status-dot').forEach(d => d.className = 'status-dot offline');
+      }
+    }
+
+    // ══════════════════════════════════════════
+    // Models & Lifecycle
+    // ══════════════════════════════════════════
+    async function loadModels() {
+      try {
+        const res = await fetch('/api/models');
+        const models = await res.json();
+        const select = document.getElementById('modelSelect');
+        select.innerHTML = '<option value="dify-default">Dify デフォルト設定</option>';
+        models.forEach(m => {
+          const opt = document.createElement('option');
+          opt.value = m.name;
+          opt.textContent = m.name;
+          select.appendChild(opt);
+        });
+      } catch (e) {
+        console.error('Failed to load models:', e);
+      }
+    }
+
+    function handleToolChange() {
+      const tool = document.getElementById('activeTool').value;
+      const modelSelect = document.getElementById('modelSelect');
+      if (tool !== 'chat') {
+        modelSelect.style.opacity = '0.5';
+        modelSelect.title = '標準チャット以外ではDifyの固定モデルが使用されます';
+      } else {
+        modelSelect.style.opacity = '1';
+        modelSelect.title = '';
+      }
+    }
+
+    window.addEventListener('DOMContentLoaded', () => {
+      loadSettings();
+      checkHealth();
+      loadHistory();
+      loadModels();
+      setInterval(checkHealth, 10000);
+    });
+
+    // ══════════════════════════════════════════
+    // Chat Messages
+    // ══════════════════════════════════════════
+    function hideWelcome() {
+      const w = document.getElementById('welcomeScreen');
+      if (w) w.style.display = 'none';
+    }
+
+    function addMessage(role, content) {
+      hideWelcome();
+      const area = document.getElementById('chatArea');
+      const msg = document.createElement('div');
+      msg.className = `message ${role}`;
+
+      if (role === 'assistant') {
+        const rendered = marked.parse(content || '');
+        msg.innerHTML = `
+          <div class="role-label">AI Agent</div>
+          <div class="content">${rendered}</div>
+          <button class="copy-btn" onclick="copyMessage(this)" title="コピー">📋</button>
+        `;
+      } else if (role === 'user') {
+        msg.textContent = content;
+      } else {
+        msg.textContent = content;
+      }
+
+      area.appendChild(msg);
+      area.scrollTop = area.scrollHeight;
+      return msg;
+    }
+
+    function addTypingIndicator() {
+      hideWelcome();
+      const area = document.getElementById('chatArea');
+      const msg = document.createElement('div');
+      msg.className = 'message assistant';
+      msg.id = 'typing';
+      msg.innerHTML = `
+        <div class="role-label">AI Agent</div>
+        <div class="typing-indicator"><span></span><span></span><span></span></div>
+      `;
+      area.appendChild(msg);
+      area.scrollTop = area.scrollHeight;
+      return msg;
+    }
+
+    function copyMessage(btn) {
+      const content = btn.parentElement.querySelector('.content');
+      navigator.clipboard.writeText(content.textContent || content.innerText);
+      const orig = btn.textContent;
+      btn.textContent = '✓';
+      setTimeout(() => btn.textContent = orig, 1500);
+    }
+
+    function insertPrompt(text) {
+      document.getElementById('messageInput').value = text;
+      document.getElementById('messageInput').focus();
+    }
+
+    // ══════════════════════════════════════════
+    // Send Chat Message
+    // ══════════════════════════════════════════
+    async function sendMessage() {
+      const input = document.getElementById('messageInput');
+      const message = input.value.trim();
+      if (!message || isStreaming) return;
+
+      const apiKey = document.getElementById('apiKey').value;
+      if (!apiKey) {
+        addMessage('system', 'サイドバーでDify APIキーを設定してください');
+        return;
+      }
+
+      addMessage('user', message);
+      chatMessages.push({ role: 'user', content: message });
+      input.value = '';
+      input.style.height = 'auto';
+      isStreaming = true;
+      document.getElementById('btnSend').disabled = true;
+
+      const typing = addTypingIndicator();
+
+      try {
+        const activeTool = document.getElementById('activeTool').value;
+        const selectedModel = document.getElementById('modelSelect').value;
+        const res = await fetch('/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            message,
+            history: chatMessages.slice(0, -1), // 先ほど追加した最新のuserメッセージを除外した履歴
+            conversation_id: conversationId,
+            api_key: apiKey,
+            dify_url: document.getElementById('difyUrl').value,
+            tool: activeTool,
+            model: selectedModel
+          }),
+        });
+
+        typing.remove();
+
+        if (!res.ok) {
+          let errMsg = res.statusText;
+          try { const err = await res.json(); errMsg = err.error || errMsg; } catch { }
+          addMessage('system', `エラー: ${errMsg}`);
+          return;
+        }
+
+        const assistantMsg = addMessage('assistant', '');
+        const contentEl = assistantMsg.querySelector('.content');
+        let fullText = '';
+
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+
+          for (const line of lines) {
+            if (!line.startsWith('data: ')) continue;
+            const jsonStr = line.slice(6).trim();
+            if (!jsonStr) continue;
+
+            try {
+              const data = JSON.parse(jsonStr);
+              if (data.event === 'message' || data.event === 'agent_message') {
+                fullText += data.answer || '';
+
+                // --- <think> タグのパースと折りたたみ処理 ---
+                let processedText = fullText.replace(/<think>([\s\S]*?)<\/think>/g, '<details class="think-accordion"><summary>🤔 思考プロセス</summary><div class="think-content">$1</div></details>');
+
+                // 未フォーマットでタグが開いたままの場合
+                if (processedText.includes('<think>')) {
+                  processedText = processedText.replace(/<think>([\s\S]*)$/, '<details class="think-accordion" open><summary>🤔 思考中...</summary><div class="think-content">$1</div></details>');
+                }
+
+                contentEl.innerHTML = marked.parse(processedText) + '<span class="blinking-cursor"></span>';
+              }
+              if (data.conversation_id) {
+                conversationId = data.conversation_id;
+              }
+            } catch { }
+          }
+
+          document.getElementById('chatArea').scrollTop =
+            document.getElementById('chatArea').scrollHeight;
+        }
+
+        // ストリーミング終了時にカーソルを削除
+        const cursor = contentEl.querySelector('.blinking-cursor');
+        if (cursor) cursor.remove();
+
+        // Save to history
+        chatMessages.push({ role: 'assistant', content: fullText });
+        saveConversation(message);
+
+      } catch (err) {
+        typing.remove();
+        addMessage('system', `接続エラー: ${err.message}`);
+      } finally {
+        isStreaming = false;
+        document.getElementById('btnSend').disabled = false;
+      }
+    }
+
+    // (runWorkflow removed, handled via /api/chat)
+    // Conversation History
+    // ══════════════════════════════════════════
+    function generateId() {
+      return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+    }
+
+    async function saveConversation(lastMessage) {
+      if (!currentConvId) currentConvId = generateId();
+      const title = chatMessages.find(m => m.role === 'user')?.content?.substring(0, 40) || '新しい会話';
+
+      try {
+        await fetch('/api/conversations', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            id: currentConvId,
+            title,
+            messages: chatMessages,
+          }),
+        });
+        loadHistory();
+      } catch { }
+    }
+
+    async function loadHistory() {
+      try {
+        const res = await fetch('/api/conversations');
+        const list = await res.json();
+        const container = document.getElementById('historyList');
+        container.innerHTML = '';
+
+        list.forEach(item => {
+          const div = document.createElement('div');
+          div.className = `history-item${item.id === currentConvId ? ' active' : ''}`;
+          div.innerHTML = `
+            <span class="icon">💬</span>
+            <span class="title">${escapeHtml(item.title)}</span>
+            <button class="delete-btn" onclick="event.stopPropagation();deleteConversation('${item.id}')" title="削除">✕</button>
+          `;
+          div.addEventListener('click', () => loadConversation(item.id));
+          container.appendChild(div);
+        });
+      } catch { }
+    }
+
+    async function loadConversation(id) {
+      try {
+        const res = await fetch(`/api/conversations/${id}`);
+        const data = await res.json();
+
+        // Reset chat
+        const area = document.getElementById('chatArea');
+        area.innerHTML = '';
+        conversationId = '';
+        currentConvId = id;
+        chatMessages = data.messages || [];
+
+        // Replay messages
+        chatMessages.forEach(msg => {
+          addMessage(msg.role, msg.content);
+        });
+
+        loadHistory();
+
+        if (window.innerWidth <= 768) {
+          document.getElementById('sidebar').classList.remove('open');
+          document.getElementById('sidebarOverlay').classList.remove('active');
+        }
+      } catch { }
+    }
+
+    async function deleteConversation(id) {
+      try {
+        await fetch(`/api/conversations/${id}`, { method: 'DELETE' });
+        if (currentConvId === id) newChat();
+        loadHistory();
+      } catch { }
+    }
+
+    function escapeHtml(str) {
+      const div = document.createElement('div');
+      div.textContent = str;
+      return div.innerHTML;
+    }
+
+    // ══════════════════════════════════════════
+    // Utilities
+    // ══════════════════════════════════════════
+    function newChat() {
+      const area = document.getElementById('chatArea');
+      area.innerHTML = '';
+      conversationId = '';
+      currentConvId = null;
+      chatMessages = [];
+
+      // Show welcome
+      area.innerHTML = `
+        <div class="welcome-screen" id="welcomeScreen">
+          <div class="welcome-icon">🤖</div>
+          <h3>ローカルAIエージェント</h3>
+          <p>Dify + Ollama + MCP で構築された完全ローカルAI。<br>ファイル操作、要約、議事録作成、自由な対話が可能です。</p>
+          <div class="feature-cards">
+            <div class="feature-card" onclick="insertPrompt('~/Documents の中身を一覧で見せて')">
+              <div class="icon">📁</div><div class="label">ファイル操作</div><div class="desc">読み書き・一覧・検索</div>
+            </div>
+            <div class="feature-card" onclick="insertPrompt('この内容を要約してください')">
+              <div class="icon">📝</div><div class="label">文書作成</div><div class="desc">議事録・レポート・要約</div>
+            </div>
+            <div class="feature-card" onclick="insertPrompt('このテキストを分析して傾向をまとめて')">
+              <div class="icon">🔍</div><div class="label">分析</div><div class="desc">テキスト分析・データ整理</div>
+            </div>
+            <div class="feature-card" onclick="insertPrompt('JavaScriptの非同期処理について教えて')">
+              <div class="icon">💬</div><div class="label">自由な対話</div><div class="desc">質問・相談・ブレスト</div>
+            </div>
+          </div>
+        </div>
+      `;
+
+      loadHistory();
+
+      // Switch to chat mode
+      if (currentMode !== 'chat') switchMode('chat');
+    }
+
+    function clearChat() {
+      if (currentMode === 'chat') {
+        newChat();
+      } else {
+        document.getElementById('wfResult').innerHTML = '';
+        document.getElementById('wfResult').classList.remove('visible');
+      }
+    }
+
+    function handleKeyDown(e) {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        sendMessage();
+      }
+    }
+
+    // Auto-resize textarea
+    document.getElementById('messageInput').addEventListener('input', function () {
+      this.style.height = 'auto';
+      this.style.height = Math.min(this.scrollHeight, 200) + 'px';
+    });
+
+    // ══════════════════════════════════════════
+    // Init
+    // ══════════════════════════════════════════
+    (async function init() {
+      loadSettings();
+
+      // Load server config defaults
+      try {
+        const res = await fetch('/api/config');
+        const config = await res.json();
+        const difyUrl = document.getElementById('difyUrl');
+        if (!difyUrl.value) difyUrl.value = config.difyBaseUrl || 'http://localhost/v1';
+      } catch { }
+
+      checkHealth();
+      setInterval(checkHealth, 15000);
+      loadHistory();
+    })();
+  </script>
+</body>
+
+</html>

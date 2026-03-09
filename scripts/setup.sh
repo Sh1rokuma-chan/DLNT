@@ -41,7 +41,7 @@ TOTAL_STEPS=6
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 DIFY_DIR="$PROJECT_DIR/dify"
 MCP_DIR="$PROJECT_DIR/mcp-servers"
-MODEL_NAME="hf.co/mmnga-o/NVIDIA-Nemotron-Nano-9B-v2-Japanese-gguf:Q5_K_M"
+MODEL_NAME="gpt-oss:20b"
 
 print_header
 
@@ -117,12 +117,12 @@ fi
 
 # モデルのダウンロード
 echo ""
-echo -e "${YELLOW}Nemotron-Nano-9B-v2-Japanese (Q5_K_M, ~7GB) をダウンロードします${NC}"
-echo "  これには数分〜数十分かかる場合があります..."
+echo -e "${YELLOW}gpt-oss:20b (MXFP4, ~13GB) を確認します${NC}"
+echo "  未インストールの場合はダウンロードに数分〜数十分かかります..."
 echo ""
 
-if ollama list 2>/dev/null | grep -q "nemotron"; then
-    print_success "Nemotronモデルは既にダウンロード済みです"
+if ollama list 2>/dev/null | grep -q "gpt-oss"; then
+    print_success "gpt-oss:20bは既にインストール済みです"
 else
     ollama pull "$MODEL_NAME"
     print_success "モデルのダウンロードが完了しました"

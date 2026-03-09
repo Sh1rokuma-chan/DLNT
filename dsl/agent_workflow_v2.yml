@@ -80,7 +80,7 @@ workflow:
           completion_params:
             temperature: 0.7
           mode: chat
-          name: nemotron-jp
+          name: gpt-oss:20b
           provider: ollama
         prompt_template:
         - id: a4e4c2b9-6b80-4d57-9db0-3d1b3127db83
