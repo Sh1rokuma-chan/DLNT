@@ -1,0 +1,169 @@
+/*
+ * MyAI - Open WebUI カスタムテーマ
+ * ChatGPT (GPT-4o) 風のビジュアルデザイン
+ */
+
+/* ── カラーパレット上書き (ダークテーマ) ─────────────────── */
+:root {
+  /* 背景 */
+  --color-gray-950: #0d0d0d;
+  --color-gray-900: #171717;
+  --color-gray-850: #1c1c1c;
+  --color-gray-800: #212121;
+  --color-gray-700: #2f2f2f;
+  --color-gray-600: #3a3a3a;
+  --color-gray-500: #4a4a4a;
+  --color-gray-400: #666;
+  --color-gray-300: #8e8ea0;
+  --color-gray-200: #adadad;
+  --color-gray-100: #ececec;
+  --color-gray-50:  #f7f7f8;
+
+  /* アクセントカラー (ChatGPTグリーン) */
+  --color-green-500: #10a37f;
+  --color-green-600: #0d8a6a;
+  --color-green-400: #1ac093;
+}
+
+/* ── サイドバー ──────────────────────────────────────────── */
+.sidebar, nav[aria-label="sidebar"] {
+  background-color: #171717 !important;
+  border-right: 1px solid #2a2a2a !important;
+}
+
+/* ── メインチャットエリア ─────────────────────────────────── */
+main, .chat-container, [class*="chat-area"] {
+  background-color: #212121 !important;
+}
+
+/* ── チャットバブル ──────────────────────────────────────── */
+/* ユーザーメッセージ */
+[class*="user-message"], [data-role="user"] > div {
+  background-color: #2f2f2f !important;
+  border-radius: 18px 18px 4px 18px !important;
+  max-width: 80% !important;
+}
+
+/* AIメッセージ */
+[class*="assistant-message"], [data-role="assistant"] > div {
+  background-color: transparent !important;
+  border: none !important;
+  max-width: 80% !important;
+}
+
+/* ── 入力欄 ──────────────────────────────────────────────── */
+textarea, [class*="chat-input"], [class*="message-input"] {
+  background-color: #2f2f2f !important;
+  border: 1px solid #3a3a3a !important;
+  border-radius: 12px !important;
+  color: #ececec !important;
+  font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif !important;
+}
+
+textarea:focus {
+  border-color: #10a37f !important;
+  box-shadow: 0 0 0 2px rgba(16, 163, 127, 0.15) !important;
+}
+
+/* 送信ボタン */
+[class*="send-btn"], button[type="submit"] {
+  background-color: #10a37f !important;
+  border-color: #10a37f !important;
+  border-radius: 8px !important;
+}
+
+[class*="send-btn"]:hover, button[type="submit"]:hover {
+  background-color: #0d8a6a !important;
+}
+
+/* ── ヘッダー / トップバー ───────────────────────────────── */
+header, [class*="topbar"], nav[class*="top"] {
+  background-color: #171717 !important;
+  border-bottom: 1px solid #2a2a2a !important;
+}
+
+/* アプリ名ロゴエリア (MyAI に変更) */
+[class*="brand"], [class*="logo-text"] {
+  font-weight: 700 !important;
+  letter-spacing: -0.3px !important;
+}
+
+/* ── モデルセレクター ────────────────────────────────────── */
+[class*="model-selector"], select[class*="model"] {
+  background-color: #2f2f2f !important;
+  border: 1px solid #3a3a3a !important;
+  border-radius: 8px !important;
+  color: #ececec !important;
+  font-size: 13px !important;
+}
+
+/* ── スクロールバー ──────────────────────────────────────── */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #404040;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #666;
+}
+
+/* ── コードブロック ──────────────────────────────────────── */
+pre, code {
+  background-color: #1a1a1a !important;
+  border: 1px solid #333 !important;
+  border-radius: 8px !important;
+  font-family: "SF Mono", "Fira Code", "Consolas", monospace !important;
+}
+
+pre {
+  padding: 12px 16px !important;
+}
+
+/* ── テキスト ────────────────────────────────────────────── */
+body, p, span, div {
+  font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif;
+}
+
+/* ── プライマリボタン ─────────────────────────────────────── */
+[class*="btn-primary"], button[class*="primary"] {
+  background-color: #10a37f !important;
+  border-color: #10a37f !important;
+}
+
+[class*="btn-primary"]:hover {
+  background-color: #0d8a6a !important;
+}
+
+/* ── Thinking / 思考表示 ─────────────────────────────────── */
+[class*="thinking"], [class*="reasoning"] {
+  color: #8e8ea0 !important;
+  font-size: 13px !important;
+  border-left: 2px solid #333 !important;
+  padding-left: 12px !important;
+  font-style: italic !important;
+}
+
+/* ── ウェルカム画面 ──────────────────────────────────────── */
+[class*="welcome"], [class*="empty-chat"] {
+  background-color: #212121 !important;
+}
+
+/* ── 会話リスト (サイドバー) ─────────────────────────────── */
+[class*="conversation-item"], [class*="chat-item"] {
+  border-radius: 6px !important;
+  color: #ececec !important;
+}
+
+[class*="conversation-item"]:hover, [class*="chat-item"]:hover {
+  background-color: #2f2f2f !important;
+}
+
+[class*="conversation-item"].active, [class*="chat-item"].active {
+  background-color: #2f2f2f !important;
+}

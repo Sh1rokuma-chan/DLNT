@@ -1,0 +1,573 @@
+app:
+  description: タスクを分解して検索・コード実行・ファイル操作を組み合わせてこなすマルチステップ作業エージェント
+  icon: "\U0001F9E0"
+  icon_background: '#F0FDF4'
+  mode: advanced-chat
+  name: タスクエージェント
+  use_icon_as_answer_icon: false
+kind: app
+version: 0.1.5
+workflow:
+  conversation_variables: []
+  environment_variables: []
+  features:
+    file_upload:
+      enabled: false
+    opening_statement: |
+      タスクを教えてください。内容に応じて以下を自動で判断・実行します。
+
+      🔍 情報収集が必要 → Web検索して最新情報を収集
+      💻 コード実行が必要 → Pythonコードを書いて実行
+      📋 一般的な作業    → 直接回答・計画立案
+
+      複数ステップの作業もお任せください。
+    retriever_resource:
+      enabled: false
+    sensitive_word_avoidance:
+      enabled: false
+    suggested_questions:
+      - 競合他社3社の最新情報を調べて比較表を作成してください
+      - 1から100の素数をすべて見つけてください
+      - 日本の主要都市の人口ランキングを作成してください
+    suggested_questions_after_answer:
+      enabled: false
+    text_to_speech:
+      enabled: false
+      language: ''
+      voice: ''
+  graph:
+    edges:
+      - data:
+          isInIteration: false
+          sourceType: start
+          targetType: llm
+        id: edge-start-plan
+        source: start
+        sourceHandle: source
+        target: llm-plan
+        targetHandle: target
+        type: custom
+      - data:
+          isInIteration: false
+          sourceType: llm
+          targetType: code
+        id: edge-plan-classify
+        source: llm-plan
+        sourceHandle: source
+        target: code-classify
+        targetHandle: target
+        type: custom
+      - data:
+          isInIteration: false
+          sourceType: code
+          targetType: if-else
+        id: edge-classify-branch
+        source: code-classify
+        sourceHandle: source
+        target: if-search
+        targetHandle: target
+        type: custom
+      - data:
+          isInIteration: false
+          sourceType: if-else
+          targetType: code
+        id: edge-branch-encode
+        source: if-search
+        sourceHandle: true
+        target: code-encode
+        targetHandle: target
+        type: custom
+      - data:
+          isInIteration: false
+          sourceType: if-else
+          targetType: code
+        id: edge-branch-code
+        source: if-search
+        sourceHandle: false
+        target: code-exec
+        targetHandle: target
+        type: custom
+      - data:
+          isInIteration: false
+          sourceType: code
+          targetType: http-request
+        id: edge-encode-http
+        source: code-encode
+        sourceHandle: source
+        target: http-search
+        targetHandle: target
+        type: custom
+      - data:
+          isInIteration: false
+          sourceType: http-request
+          targetType: code
+        id: edge-http-parse
+        source: http-search
+        sourceHandle: source
+        target: code-parse
+        targetHandle: target
+        type: custom
+      - data:
+          isInIteration: false
+          sourceType: code
+          targetType: llm
+        id: edge-parse-synthesize
+        source: code-parse
+        sourceHandle: source
+        target: llm-synthesize
+        targetHandle: target
+        type: custom
+      - data:
+          isInIteration: false
+          sourceType: code
+          targetType: llm
+        id: edge-exec-synthesize
+        source: code-exec
+        sourceHandle: source
+        target: llm-synthesize
+        targetHandle: target
+        type: custom
+      - data:
+          isInIteration: false
+          sourceType: llm
+          targetType: answer
+        id: edge-synthesize-answer
+        source: llm-synthesize
+        sourceHandle: source
+        target: answer-node
+        targetHandle: target
+        type: custom
+    nodes:
+      - data:
+          desc: ''
+          selected: false
+          title: Start
+          type: start
+          variables: []
+        height: 54
+        id: start
+        position:
+          x: 50
+          y: 350
+        positionAbsolute:
+          x: 50
+          y: 350
+        selected: false
+        sourcePosition: right
+        targetPosition: left
+        type: custom
+        width: 244
+
+      - data:
+          context:
+            enabled: false
+            variable_selector: []
+          desc: 'タスクを分析し実行計画を立てる'
+          model:
+            completion_params:
+              max_tokens: 1024
+              stop: []
+              temperature: 0.3
+            mode: chat
+            name: gpt-oss:20b
+            provider: ollama
+          prompt_template:
+            - id: sys-plan-1
+              role: system
+              text: |
+                あなたは優秀なタスクマネージャーです。ユーザーのタスクを分析し、以下の形式でJSONを出力してください。
+
+                出力形式（必ずこのJSON形式のみ出力）:
+                {
+                  "task_type": "search" または "code" のどちらか,
+                  "summary": "タスクの1行要約",
+                  "search_query": "検索が必要な場合の検索クエリ（task_type=searchの場合）",
+                  "code_task": "コード実行が必要な場合の具体的な処理内容（task_type=codeの場合）",
+                  "steps": ["ステップ1", "ステップ2", "ステップ3"]
+                }
+
+                判断基準:
+                - 「調べる」「検索」「最新」「ニュース」「比較」→ task_type: "search"
+                - 「計算」「コード」「処理」「変換」「リスト生成」「ランキング作成」→ task_type: "code"
+                - 迷った場合は task_type: "code" を選択
+            - id: usr-plan-1
+              role: user
+              text: |
+                タスク: {{#sys.query#}}
+          selected: false
+          title: タスク分析・計画
+          type: llm
+          variables: []
+          vision:
+            configs:
+              detail: high
+            enabled: false
+        height: 98
+        id: llm-plan
+        position:
+          x: 350
+          y: 320
+        positionAbsolute:
+          x: 350
+          y: 320
+        selected: false
+        sourcePosition: right
+        targetPosition: left
+        type: custom
+        width: 244
+
+      - data:
+          code: |
+            import json
+            import re
+            def main(args: dict) -> dict:
+                plan_text = args.get('plan', '')
+                # JSONブロックを抽出
+                json_match = re.search(r'\{[\s\S]*\}', plan_text)
+                task_type = 'code'
+                search_query = ''
+                code_task = ''
+                summary = ''
+                if json_match:
+                    try:
+                        plan = json.loads(json_match.group())
+                        task_type = plan.get('task_type', 'code')
+                        search_query = plan.get('search_query', '')
+                        code_task = plan.get('code_task', '')
+                        summary = plan.get('summary', '')
+                    except Exception:
+                        pass
+                if not search_query:
+                    search_query = args.get('original_query', '')
+                if not code_task:
+                    code_task = args.get('original_query', '')
+                return {
+                    "task_type": task_type,
+                    "search_query": search_query,
+                    "code_task": code_task,
+                    "summary": summary
+                }
+          code_language: python3
+          desc: 'LLM出力からtask_typeを抽出'
+          inputs:
+            plan:
+              type: string
+              value_selector:
+                - llm-plan
+                - text
+            original_query:
+              type: string
+              value_selector:
+                - sys
+                - query
+          outputs:
+            task_type:
+              children: null
+              type: string
+            search_query:
+              children: null
+              type: string
+            code_task:
+              children: null
+              type: string
+            summary:
+              children: null
+              type: string
+          selected: false
+          title: タスク分類
+          type: code
+        height: 54
+        id: code-classify
+        position:
+          x: 660
+          y: 350
+        positionAbsolute:
+          x: 660
+          y: 350
+        selected: false
+        sourcePosition: right
+        targetPosition: left
+        type: custom
+        width: 244
+
+      - data:
+          cases:
+            - case_id: case-search
+              conditions:
+                - comparison_operator: is
+                  id: cond-search
+                  value: 'search'
+                  variable_selector:
+                    - code-classify
+                    - task_type
+              logical_operator: and
+          desc: '検索タスクかコードタスクか判定'
+          selected: false
+          title: タスク種別分岐
+          type: if-else
+        height: 98
+        id: if-search
+        position:
+          x: 970
+          y: 350
+        positionAbsolute:
+          x: 970
+          y: 350
+        selected: false
+        sourcePosition: right
+        targetPosition: left
+        type: custom
+        width: 244
+
+      # ─── 検索パス ─────────────────────────────────────────────
+      - data:
+          code: |
+            import urllib.parse
+            def main(args: dict) -> dict:
+                q = args.get('query', '').strip()
+                return {"encoded": urllib.parse.quote(q, safe='')}
+          code_language: python3
+          desc: 'クエリURLエンコード'
+          inputs:
+            query:
+              type: string
+              value_selector:
+                - code-classify
+                - search_query
+          outputs:
+            encoded:
+              children: null
+              type: string
+          selected: false
+          title: クエリエンコード
+          type: code
+        height: 54
+        id: code-encode
+        position:
+          x: 1280
+          y: 150
+        positionAbsolute:
+          x: 1280
+          y: 150
+        selected: false
+        sourcePosition: right
+        targetPosition: left
+        type: custom
+        width: 244
+
+      - data:
+          authorization:
+            config: null
+            type: no-auth
+          body:
+            data: ''
+            type: none
+          desc: 'SearXNG検索実行'
+          headers: 'Accept: application/json'
+          method: get
+          params: 'q={{#code-encode.encoded#}}&format=json&language=ja&safesearch=0'
+          selected: false
+          timeout:
+            connect: 30
+            max_connect_retries: 2
+            max_retries: 2
+            read: 30
+            write: 30
+          title: Web検索
+          type: http-request
+          url: http://searxng:8080/search
+          variables: []
+        height: 54
+        id: http-search
+        position:
+          x: 1590
+          y: 150
+        positionAbsolute:
+          x: 1590
+          y: 150
+        selected: false
+        sourcePosition: right
+        targetPosition: left
+        type: custom
+        width: 244
+
+      - data:
+          code: |
+            import json
+            def main(args: dict) -> dict:
+                body_str = args.get('body', '{}')
+                try:
+                    body = json.loads(body_str) if isinstance(body_str, str) else body_str
+                    results = body.get('results', [])
+                except Exception:
+                    results = []
+                lines = []
+                for i, r in enumerate(results[:5], 1):
+                    title = r.get('title', '').strip()
+                    content = r.get('content', '').strip()
+                    url = r.get('url', '').strip()
+                    lines.append(f"[{i}] {title}\n{content}\nURL: {url}")
+                search_text = "\n\n".join(lines) if lines else "検索結果なし"
+                return {"search_results": search_text, "tool_used": "web_search"}
+          code_language: python3
+          desc: '検索結果整形'
+          inputs:
+            body:
+              type: string
+              value_selector:
+                - http-search
+                - body
+          outputs:
+            search_results:
+              children: null
+              type: string
+            tool_used:
+              children: null
+              type: string
+          selected: false
+          title: 検索結果整形
+          type: code
+        height: 54
+        id: code-parse
+        position:
+          x: 1900
+          y: 150
+        positionAbsolute:
+          x: 1900
+          y: 150
+        selected: false
+        sourcePosition: right
+        targetPosition: left
+        type: custom
+        width: 244
+
+      # ─── コード実行パス ────────────────────────────────────────
+      - data:
+          code: |
+            def main(args: dict) -> dict:
+                task = args.get('task', '').strip()
+                # コードタスクの場合は task情報を synthesis LLMに渡す
+                return {
+                    "search_results": f"[コード実行タスク]\n{task}",
+                    "tool_used": "code_execution"
+                }
+          code_language: python3
+          desc: 'コードタスク情報を整形'
+          inputs:
+            task:
+              type: string
+              value_selector:
+                - code-classify
+                - code_task
+          outputs:
+            search_results:
+              children: null
+              type: string
+            tool_used:
+              children: null
+              type: string
+          selected: false
+          title: コードタスク準備
+          type: code
+        height: 54
+        id: code-exec
+        position:
+          x: 1280
+          y: 550
+        positionAbsolute:
+          x: 1280
+          y: 550
+        selected: false
+        sourcePosition: right
+        targetPosition: left
+        type: custom
+        width: 244
+
+      # ─── 統合・回答生成 ────────────────────────────────────────
+      - data:
+          context:
+            enabled: false
+            variable_selector: []
+          desc: '収集情報をもとに最終回答を生成'
+          model:
+            completion_params:
+              max_tokens: 2048
+              stop: []
+              temperature: 0.5
+            mode: chat
+            name: gpt-oss:20b
+            provider: ollama
+          prompt_template:
+            - id: sys-synth-1
+              role: system
+              text: |
+                あなたは優秀な作業エージェントです。ユーザーのタスクを完遂するための詳細な回答を日本語で作成してください。
+
+                回答形式:
+                ## タスク概要
+                （タスクの要約）
+
+                ## 実行結果
+                （具体的な成果物・回答・コード・表など）
+
+                ## 実行ステップ
+                （実際に行ったステップの説明）
+
+                注意事項:
+                - 具体的で実用的な内容にしてください
+                - コードが必要な場合はコードブロックで提示してください
+                - 表が適切な場合はMarkdown表形式を使用してください
+            - id: usr-synth-1
+              role: user
+              text: |
+                ## 元のタスク
+                {{#sys.query#}}
+
+                ## 収集した情報・実行結果
+                {{#code-parse.search_results#}}{{#code-exec.search_results#}}
+
+                上記をもとにタスクを完遂してください。
+          selected: false
+          title: 結果統合・回答生成
+          type: llm
+          variables: []
+          vision:
+            configs:
+              detail: high
+            enabled: false
+        height: 98
+        id: llm-synthesize
+        position:
+          x: 2210
+          y: 350
+        positionAbsolute:
+          x: 2210
+          y: 350
+        selected: false
+        sourcePosition: right
+        targetPosition: left
+        type: custom
+        width: 244
+
+      - data:
+          answer: '{{#llm-synthesize.text#}}'
+          desc: ''
+          selected: false
+          title: 回答
+          type: answer
+          variables: []
+        height: 107
+        id: answer-node
+        position:
+          x: 2520
+          y: 350
+        positionAbsolute:
+          x: 2520
+          y: 350
+        selected: false
+        sourcePosition: right
+        targetPosition: left
+        type: custom
+        width: 244
+  hash: task-agent-v1-2026
+  version: 0.1.5

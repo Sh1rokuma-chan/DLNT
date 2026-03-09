@@ -1,0 +1,198 @@
+app:
+  description: |
+    gpt-oss:20B を使用したチャットボット。
+    完全ローカル環境で動作します。
+  icon: "\U0001F916"
+  icon_background: '#10a37f'
+  mode: advanced-chat
+  name: "MyAI エージェント"
+  use_icon_as_answer_icon: true
+kind: app
+version: 0.1.5
+workflow:
+  conversation_variables: []
+  environment_variables: []
+  features:
+    file_upload:
+      allowed_file_extensions:
+      - .txt
+      - .md
+      - .csv
+      - .json
+      - .py
+      - .js
+      - .html
+      - .yml
+      - .yaml
+      - .log
+      allowed_file_types:
+      - document
+      - custom
+      allowed_file_upload_methods:
+      - local_file
+      enabled: true
+      fileUploadConfig:
+        file_size_limit: 15
+        batch_count_limit: 5
+      image:
+        enabled: false
+      number_limits: 5
+    opening_statement: |
+      こんにちは！ローカルAIエージェントです。
+
+      以下のことができます：
+      📝 **文書作成** — 議事録・レポート・要約の作成
+      🔍 **分析** — テキスト分析・データ整理
+      💬 **会話** — 日本語での自然な対話
+
+      何かお手伝いしましょうか？
+    retriever_resource:
+      enabled: false
+    sensitive_word_avoidance:
+      enabled: false
+    speech_to_text:
+      enabled: false
+    suggested_questions:
+    - "この会議の文字起こしを議事録にまとめて"
+    - "プロジェクトの進捗レポートを作成して"
+    - "JavaScriptの非同期処理について教えて"
+    suggested_questions_after_answer:
+      enabled: true
+    text_to_speech:
+      enabled: false
+  graph:
+    edges:
+    - data:
+        isInIteration: false
+        sourceType: start
+        targetType: llm
+      id: start-to-llm
+      source: start
+      sourceHandle: source
+      target: llm_main
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        sourceType: llm
+        targetType: answer
+      id: llm-to-answer
+      source: llm_main
+      sourceHandle: source
+      target: answer_main
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    nodes:
+    # ============================================
+    # START NODE
+    # ============================================
+    - data:
+        desc: ユーザー入力を受け取る
+        selected: false
+        title: 入力
+        type: start
+        variables: []
+      height: 120
+      id: start
+      position:
+        x: 80
+        y: 300
+      positionAbsolute:
+        x: 80
+        y: 300
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 244
+    # ============================================
+    # MAIN LLM - チャットボット
+    # ============================================
+    - data:
+        context:
+          enabled: false
+          variable_selector: []
+        desc: gpt-oss:20bベースの日本語チャットボット
+        model:
+          completion_params:
+            temperature: 0.7
+            max_tokens: 4096
+            num_ctx: 16384
+          mode: chat
+          name: "gpt-oss:20b"
+          provider: ollama
+        prompt_template:
+        - id: main-system
+          role: system
+          text: |
+            あなたは優秀な日本語AIアシスタント「MyAI」です。
+            gpt-oss:20Bモデルで動作しています。
+
+            ## 基本方針
+            - 丁寧で正確な日本語で応答してください
+            - Markdown形式で構造化された回答を提供してください
+            - わからないことは正直に伝えてください
+            - ユーザーの意図を汲み取り、適切な回答をしてください
+
+            ## 得意なタスク
+            - テキストの要約・議事録作成
+            - 文書の分析・レビュー
+            - プログラミングの質問への回答
+            - 一般的な質問への回答
+            - レポート・企画書の作成支援
+
+            ## 注意事項
+            - 完全ローカル環境で動作しているため、インターネット検索はできません
+            - ファイル操作が必要な場合は、別途MCP機能を使うよう案内してください
+        - id: main-user
+          role: user
+          text: |
+            {{#sys.query#}}
+        selected: false
+        title: メインLLM
+        type: llm
+        variables: []
+        vision:
+          enabled: false
+      height: 98
+      id: llm_main
+      position:
+        x: 480
+        y: 300
+      positionAbsolute:
+        x: 480
+        y: 300
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 244
+    # ============================================
+    # ANSWER NODE
+    # ============================================
+    - data:
+        answer: |
+          {{#llm_main.text#}}
+        desc: 最終回答を出力
+        selected: false
+        title: 回答
+        type: answer
+      height: 107
+      id: answer_main
+      position:
+        x: 880
+        y: 300
+      positionAbsolute:
+        x: 880
+        y: 300
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 244
+    viewport:
+      x: 0
+      y: 0
+      zoom: 0.8

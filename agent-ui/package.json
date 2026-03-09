@@ -1,0 +1,16 @@
+{
+  "name": "myai-agent-ui",
+  "version": "1.0.0",
+  "description": "MyAI Agent Dashboard - 2ペインUI",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "dependencies": {
+    "express": "^4.21.0"
+  }
+}
