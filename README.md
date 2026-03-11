@@ -1,159 +1,169 @@
-# ローカルAIエージェント on M5 Mac
+# MyAI Local — ローカルAIエージェント on M5 Mac
 
-**MacBook Pro (M5, 24GB) 上で、完全にローカルで完結するAIエージェントアプリケーションです。**
+**MacBook Pro (M5, 24GB) 上で完全ローカル動作するAIエージェントシステムです。**
 
-Dify、Ollama、MCP (Model Context Protocol) を組み合わせ、インターネット接続なしでファイルの読み書き、要約、議事録作成、チャットなどが可能な環境を構築します。モデルには `gpt-oss:20b` (MXFP4量子化, 13GB) を採用しています。
+Dify・Ollama・SearXNG・Whisper・MCP を組み合わせ、Web検索・音声議事録・マルチステップ自動実行をインターネット接続なしで実現します。
+モデルは `gpt-oss:20b` (MXFP4量子化, 13GB) を使用。
 
 ---
 
-## ✨ 主な機能
+## ✨ 機能
 
-- **完全ローカル動作**: インターネット接続不要。機密性の高い情報も安心して扱えます。
-- **ファイル操作エージェント**: ローカルファイルシステムと連携し、ファイルの読み書き、検索、一覧表示などを自律的に実行します。
-- **高品質な議事録作成**: 長文の文字起こしを自動で分割・要約し、手書きメモと統合して、構造化された議事録を生成します。
-- **動的なWebインターフェース**: チャットモードと議事録作成モードを切り替え可能な、使いやすいカスタムUIを提供します。
-- **自動セットアップ**: 面倒な環境構築をシェルスクリプト一本で自動化します。
+| エージェント | 機能 |
+|------|------|
+| 🔍 **調査** | SearXNGでWeb検索 → LLMが分析・回答 |
+| 🧠 **タスク** | タスクを分解して複数ステップを自律実行 |
+| 📝 **議事録** | 音声/テキスト → 構造化議事録（Whisper文字起こし対応） |
+| 💬 **汎用チャット** | Open WebUI で Ollama モデルと直接対話 |
+
+---
 
 ## 🏛️ アーキテクチャ
 
-このアプリケーションは、以下のコンポーネントが連携して動作します。
+```
+http://localhost/         → master-nginx
+  ├─ /                   → Open WebUI  (汎用チャット)
+  └─ /agent/             → Agent UI v2 (3エージェント専用ダッシュボード)
 
-![アーキテクチャ図](./architecture.png)
+http://localhost:8888/    → Dify        (ワークフロー管理画面)
+http://localhost:19999/   → Netdata     (システム監視)
+http://localhost:11434/   → Ollama      (ホスト側、Docker管理外)
+```
 
 | コンポーネント | 役割 |
-| :--- | :--- |
-| **Web UI** | ユーザーとの対話を行うカスタムフロントエンド。Dify APIを呼び出す。 |
-| **Express.js Server** | Web UIとDify APIを仲介するプロキシサーバー。CORSを回避。 |
-| **Dify** | ワークフローとエージェントの実行基盤。LLMやツールを統合管理。 |
-| **Ollama** | ローカル環境でLLMを動作させるためのサーバー。 |
-| **gpt-oss:20b** | 今回使用するローカルLLM（MXFP4量子化）。 |
-| **MCP Filesystem Server** | Difyエージェントがローカルファイルを操作するためのツール。 |
-| **supergateway** | MCPサーバーのstdioインターフェースをHTTP/SSEに変換するプロキシ。 |
-
-## 📂 ファイル構成
-
-納品物（`dify-local-agent.zip`）を展開すると、以下のファイルが配置されます。
-
-```
-.dify-local-agent/
-├── README.md                # このドキュメント
-├── architecture.mmd         # アーキテクチャ図 (Mermaidソース)
-├── architecture.png         # アーキテクチャ図 (画像)
-├── config/
-│   └── Modelfile            # Ollamaカスタムモデル設定
-├── dsl/
-│   ├── agent_workflow.yml   # ファイル操作エージェントのDSL
-│   └── minutes_workflow.yml # 議事録作成ワークフローのDSL
-├── frontend/
-│   ├── public/
-│   │   └── index.html       # Web UIのHTML
-│   ├── package.json         # Node.js設定
-│   └── server.js            # Expressバックエンド
-└── scripts/
-    ├── setup.sh             # 初期セットアップスクリプト
-    ├── start-all.sh         # 全サービス起動スクリプト
-    └── stop-all.sh          # 全サービス停止スクリプト
-```
-
-## 🚀 セットアップ手順
-
-**約15〜30分で完了します。**
-
-### 1. 前提条件
-
-以下のソフトウェアがMacにインストールされている必要があります。
-
-- **Homebrew**: macOS用パッケージマネージャー。
-- **Docker Desktop**: コンテナ実行環境。必ず**起動した状態**にしてください。
-
-`setup.sh`スクリプトがHomebrewのインストールを試みますが、手動での事前インストールを推奨します。
-
-### 2. セットアップスクリプトの実行
-
-ターミナルを開き、ダウンロードした `dify-local-agent` ディレクトリに移動して、以下のコマンドを実行します。
-
-```bash
-cd path/to/dify-local-agent
-chmod +x scripts/*.sh
-./scripts/setup.sh
-```
-
-このスクリプトは、以下の処理を自動的に行います。
-
-1.  **前提条件のチェック** (Docker, Node.js, Git)
-2.  **Ollamaのインストール**と**LLMモデルのダウンロード** (~7GB)
-3.  **Difyリポジトリのクローン**と**Dockerコンテナの起動**
-4.  **MCP Filesystem Serverのセットアップ**
-5.  **カスタムフロントエンドの依存関係インストール**
-
-### 3. Difyの初期設定
-
-スクリプト完了後、いくつかの手動設定が必要です。
-
-1.  **Dify管理者アカウント作成**
-    - ブラウザで **http://localhost/install** を開きます。
-    - 画面の指示に従い、管理者アカウントを作成します。
-
-2.  **OllamaをDifyに接続**
-    - Difyにログイン後、`設定` > `モデルプロバイダー` > `Ollama` を選択します。
-    - `追加`ボタンを押し、以下の通り設定します。
-      - **Model Name**: `gpt-oss:20b`
-      - **Base URL**: `http://host.docker.internal:11434`
-    - `保存`をクリックします。
-
-3.  **MCP Filesystem ServerをDifyに接続**
-    - Difyで `ツール` > `MCP` > `Add MCP Server (HTTP)` をクリックします。
-    - 以下の通り設定します。
-      - **Server URL**: `http://host.docker.internal:8808/sse`
-      - **Name**: `Local Filesystem` （任意）
-      - **Server ID**: `local-fs` （任意ですが、一度決めたら変更しないでください）
-    - `保存`をクリックします。
-
-## 💻 利用方法
-
-### 1. 全サービスの起動
-
-ターミナルで以下のコマンドを実行すると、必要なサービスがすべてバックグラウンドで起動します。
-
-```bash
-./scripts/start-all.sh
-```
-
-- **起動するサービス**: Ollama, Dify, MCP Server, カスタムフロントエンド
-- **ログファイル**: `logs/` ディレクトリに各サービスのログが出力されます。
-
-### 2. Web UIにアクセス
-
-ブラウザで **http://localhost:3001** を開きます。
-
-### 3. Dify APIキーの設定
-
-Web UIを操作するには、Difyで作成したアプリのAPIキーが必要です。
-
-1.  **Difyでアプリを作成**: `スタジオ` > `はじめから作成` で、`チャットボット` を作成します。
-2.  **APIキーを取得**: 作成したアプリの `API` タブでAPIキーをコピーします。
-3.  **Web UIに設定**: Web UIのサイドバーにある `Dify API Key` に貼り付けます。
-    - `agent_workflow.yml` をインポートして使う場合は、そのアプリのAPIキーを `Dify API Key` に設定します。
-    - `minutes_workflow.yml` をインポートして使う場合は、そのアプリのAPIキーを `ワークフロー API Key` に設定します。
-
-### 4. ワークフローのインポート
-
-提供されているDSLファイルをインポートすることで、すぐに高度な機能を利用できます。
-
-- Difyで `スタジオ` > `アプリを作成` > `DSLファイルをインポート` を選択します。
-- `dsl/agent_workflow.yml` または `dsl/minutes_workflow.yml` をアップロードします。
-- インポート後、アプリの `API` タブからAPIキーを取得し、Web UIに設定してください。
-
-### 5. サービスの停止
-
-以下のコマンドで、Difyと関連プロセスをすべて停止します。
-
-```bash
-./scripts/stop-all.sh
-```
-
-**注意**: Ollama本体は自動で停止しません。必要に応じて手動で `pkill ollama` コマンドで停止してください。
+|:---|:---|
+| **Dify v1.13.0** | ワークフロー実行基盤。ノードベースでLLM・HTTP・コードを繋ぐ |
+| **Ollama** | ローカルLLMサーバー（ホスト側で動作） |
+| **gpt-oss:20b** | 使用するLLM（MXFP4量子化, 13GB） |
+| **SearXNG** | ローカルメタ検索エンジン（Google/Bing/DuckDuckGo集約） |
+| **Whisper API** | ローカル音声文字起こし（faster-whisper CPU版） |
+| **MCP Server** | ローカルファイルシステム操作ツール |
+| **Open WebUI** | 汎用チャットUI（モデル切り替え・ドキュメントアップロード対応） |
+| **Agent UI v2** | 3エージェント専用カスタムダッシュボード |
 
 ---
 
-以上で、あなたのMacが強力なローカルAIエージェント実行環境になります。
+## 📂 ファイル構成
+
+```
+dify-local-agent/
+├── docker-compose.yaml      # 全19サービス定義
+├── .env                     # シークレット・設定値（gitignore済み）
+├── .env.example             # 設定テンプレート
+├── nginx/conf.d/            # master-nginx設定
+├── dify/
+│   ├── nginx/conf.d/        # Dify専用nginx設定
+│   └── volumes/             # Difyデータ永続化（gitignore済み）
+├── agent-ui/                # Agent UI v2 (Express + カスタムHTML)
+│   ├── public/index.html    # 4タブUI
+│   ├── server.js            # APIプロキシ・Whisperプロキシ
+│   └── Dockerfile
+├── dsl/                     # Difyワークフロー定義
+│   ├── research_agent.yml   # 調査エージェント
+│   ├── task_agent.yml       # タスクエージェント
+│   └── minutes_v2.yml       # 議事録ワークフロー
+├── searxng/
+│   └── settings.yml         # SearXNG設定
+└── open-webui/
+    └── custom.css           # Open WebUIスタイル
+```
+
+---
+
+## 🚀 セットアップ
+
+### 前提条件
+
+- macOS (Apple Silicon)
+- **Docker Desktop** — インストール済みで起動していること
+- **Ollama** — ホスト側にインストール済みで `gpt-oss:20b` をダウンロード済み
+
+```bash
+# Ollamaとモデルの確認
+ollama list   # gpt-oss:20b が表示されること
+```
+
+### 1. 起動
+
+```bash
+cd /path/to/dify-local-agent
+docker compose up -d
+```
+
+初回起動は数分かかります。全サービスの状態確認:
+
+```bash
+docker compose ps
+```
+
+### 2. Dify 初期設定（初回のみ）
+
+1. ブラウザで **http://localhost:8888/install** を開く
+2. 管理者アカウントを作成（パスワードは `.env` の `INIT_PASSWORD` を参照）
+3. `設定` → `モデルプロバイダー` → `Ollama` → 追加:
+   - **Model Name**: `gpt-oss:20b`
+   - **Base URL**: `http://host.docker.internal:11434`
+
+### 3. DSL のインポート（初回のみ）
+
+Dify スタジオ → 「**DSLファイルをインポート**」で以下の3ファイルを順番にインポート:
+
+| ファイル | アプリ種別 | 機能 |
+|---------|-----------|------|
+| `dsl/research_agent.yml` | アドバンスドチャット | Web検索エージェント |
+| `dsl/task_agent.yml` | アドバンスドチャット | タスク自動実行エージェント |
+| `dsl/minutes_v2.yml` | ワークフロー | 議事録作成 |
+
+インポート後、各アプリを **公開** し、`API Access` から **APIキー** を取得する。
+
+### 4. APIキーの設定
+
+取得したAPIキーを `.env` に設定:
+
+```bash
+# .env を編集
+DIFY_API_KEY_RESEARCH=app-xxxxxxxxxxxx
+DIFY_API_KEY_TASK=app-xxxxxxxxxxxx
+DIFY_API_KEY_MINUTES=app-xxxxxxxxxxxx
+```
+
+設定後、agent-ui を再起動:
+
+```bash
+docker compose restart agent-ui
+```
+
+---
+
+## 💻 使い方
+
+| URL | 用途 |
+|-----|------|
+| http://localhost/ | Open WebUI (汎用チャット) |
+| http://localhost/agent/ | Agent UI v2 (調査・タスク・議事録) |
+| http://localhost:8888/ | Dify 管理画面 |
+| http://localhost:19999/ | Netdata システム監視 |
+
+---
+
+## 🔧 日常運用
+
+```bash
+# 起動
+docker compose up -d
+
+# 停止
+docker compose down
+
+# ログ確認
+docker compose logs [サービス名] --tail=50
+
+# 特定サービスの再起動
+docker compose restart agent-ui
+```
+
+---
+
+## 📋 CREDENTIALS
+
+初期パスワード等は `CREDENTIALS.md` を参照してください。

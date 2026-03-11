@@ -1,79 +1,13 @@
-# SearXNG 設定 — MyAI Local Agent 向け
-# Dify ワークフローからの JSON API リクエスト専用設定
-
+# SearXNG 設定 — MyAI Local Agent 向け (最小構成)
 use_default_settings: true
 
-general:
-  instance_name: "MyAI Search"
-  debug: false
-  donation_url: false
-  contact_url: false
-  enable_metrics: false
+server:
+  secret_key: "${SEARXNG_SECRET_KEY}"
+  bind_address: "0.0.0.0"
 
 search:
   safe_search: 0
-  autocomplete: ""
   default_lang: "ja"
-  ban_time_on_fail: 5
-  max_ban_time_on_fail: 120
   formats:
     - html
     - json
-
-server:
-  port: 8080
-  bind_address: "0.0.0.0"
-  secret_key: "${SEARXNG_SECRET_KEY}"
-  base_url: false
-  image_proxy: false
-  http_protocol_version: "1.1"
-
-ui:
-  static_use_hash: true
-  default_theme: simple
-  center_alignment: false
-  results_on_new_tab: false
-  infinite_scroll: false
-
-outgoing:
-  request_timeout: 10.0
-  max_request_timeout: 30.0
-  useragent_suffix: ""
-  pool_connections: 100
-  pool_maxsize: 20
-
-engines:
-  - name: google
-    engine: google
-    shortcut: g
-    disabled: false
-
-  - name: bing
-    engine: bing
-    shortcut: b
-    disabled: false
-
-  - name: duckduckgo
-    engine: duckduckgo
-    shortcut: ddg
-    disabled: false
-
-  - name: wikipedia
-    engine: wikipedia
-    shortcut: wp
-    disabled: false
-    categories: general
-    timeout: 3.0
-    language: ja
-
-  - name: google news
-    engine: google_news
-    shortcut: gn
-    disabled: false
-    categories: news
-
-categories_as_tabs:
-  general:
-    title: 一般
-  news:
-    title: ニュース
