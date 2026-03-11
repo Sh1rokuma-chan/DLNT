@@ -2,7 +2,7 @@
 
 **MacBook Pro (M5, 24GB) 上で完全ローカル動作するAIエージェントシステムです。**
 
-Dify・Ollama・SearXNG・Whisper・MCP を組み合わせ、Web検索・音声議事録・マルチステップ自動実行をインターネット接続なしで実現します。
+Dify・Ollama・SearXNG・Whisper・MCP を組み合わせ、Web検索・音声議事録・マルチステップ自動実行をオンプレ環境で高速に実現します。
 モデルは `gpt-oss:20b` (MXFP4量子化, 13GB) を使用。
 
 ---
