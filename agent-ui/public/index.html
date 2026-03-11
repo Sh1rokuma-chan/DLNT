@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>MyAI Agent Dashboard v2</title>
+<title>MyAI Agent Dashboard v3</title>
 <style>
   :root {
     --bg: #212121;
@@ -464,11 +464,11 @@
     <div id="chat-messages">
       <div class="message ai">
         <div class="msg-role">MyAI</div>
-        <div class="msg-bubble">こんにちは！MyAI Agent Dashboard v2 へようこそ。<br><br>
+        <div class="msg-bubble">こんにちは！MyAI Agent Dashboard v3 へようこそ。<br><br>
         上のタブでエージェントを選択してください:<br>
         <strong>💬 チャット</strong> — Ollamaに直接接続<br>
         <strong>🔍 調査</strong> — Web検索して最新情報を回答<br>
-        <strong>🧠 タスク</strong> — 複数ステップのタスクを自律実行<br>
+        <strong>🧠 タスク</strong> — 検索・分析・計画立案をサポート<br>
         <strong>📝 議事録</strong> — 音声/テキストを高品質な議事録に変換</div>
       </div>
     </div>
@@ -488,11 +488,6 @@
 <div class="input-area">
   <!-- エージェント設定パネル -->
   <div class="agent-config" id="agent-config">
-    <div class="config-row">
-      <label>Dify APIキー</label>
-      <input type="password" class="config-input" id="api-key-input"
-             placeholder="app-xxxxxxxxxxxx (未設定の場合は環境変数から自動取得)" />
-    </div>
     <div id="minutes-config" style="display:none; flex-direction:column; gap:6px;">
       <div class="config-row">
         <label>会議タイトル</label>
@@ -551,7 +546,6 @@ const inputEl = document.getElementById('message-input');
 const sendBtn = document.getElementById('send-btn');
 const stopBtn = document.getElementById('stop-btn');
 const modelSelect = document.getElementById('model-select');
-const apiKeyInput = document.getElementById('api-key-input');
 const agentConfig = document.getElementById('agent-config');
 const minutesConfig = document.getElementById('minutes-config');
 const audioArea = document.getElementById('audio-area');
@@ -560,8 +554,8 @@ const paneAgentTag = document.getElementById('pane-agent-tag');
 
 const AGENT_CFG = {
   chat:     { tag: 'Ollama直接',   placeholder: 'メッセージを入力... (Shift+Enter で改行、Enter で送信)', showConfig: false, showMinutes: false, showAudio: false },
-  research: { tag: 'Web検索',      placeholder: '調査したい内容を入力してください...', showConfig: true, showMinutes: false, showAudio: false },
-  task:     { tag: 'マルチステップ', placeholder: 'こなしてほしいタスクを説明してください...', showConfig: true, showMinutes: false, showAudio: false },
+  research: { tag: 'Web検索',      placeholder: '調査したい内容を入力してください...', showConfig: false, showMinutes: false, showAudio: false },
+  task:     { tag: '検索・分析',    placeholder: 'こなしてほしいタスクを説明してください...', showConfig: false, showMinutes: false, showAudio: false },
   minutes:  { tag: '議事録作成',   placeholder: '会議の文字起こし・議事メモをここに貼り付けてください...', showConfig: true, showMinutes: true, showAudio: true },
 };
 
@@ -572,7 +566,7 @@ function switchAgent(agent) {
   agentConfig.classList.toggle('show', cfg.showConfig);
   minutesConfig.style.display = cfg.showMinutes ? 'flex' : 'none';
   audioArea.classList.toggle('show', cfg.showAudio);
-  modelSelect.style.display = agent === 'chat' ? 'inline-block' : 'none';
+  modelSelect.style.display = 'inline-block';
   inputEl.placeholder = cfg.placeholder;
   paneAgentTag.textContent = cfg.tag;
   if (!cfg.showAudio) { state.audioBlob = null; audioStatus.textContent = '音声なし (テキスト入力も使用可)'; }
@@ -585,7 +579,7 @@ async function checkHealth() {
     const data = await r.json();
     const dot = document.getElementById('status-dot');
     const txt = document.getElementById('status-text');
-    const offline = ['ollama','dify','searxng','whisper'].filter(s => data[s] !== 'running');
+    const offline = ['ollama','searxng','whisper'].filter(s => data[s] !== 'running');
     if (offline.length === 0) { dot.className = 'status-dot ok'; txt.textContent = '全サービス稼働中'; }
     else if (data.ollama === 'running') { dot.className = 'status-dot warn'; txt.textContent = `Ollama稼働 / ${offline.join('+')}オフライン`; }
     else { dot.className = 'status-dot err'; txt.textContent = 'Ollamaオフライン'; }
@@ -695,8 +689,7 @@ async function runAgent(text) {
   const body = {
     message: finalText,
     agent_type: state.agent,
-    api_key: apiKeyInput.value.trim(),
-    conversation_id: state.conversationId,
+    model: modelSelect.value,
   };
   if (state.agent === 'minutes') {
     body.minutes_inputs = {

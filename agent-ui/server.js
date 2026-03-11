@@ -1,17 +1,18 @@
 /**
- * MyAI Agent Dashboard v2 - バックエンドサーバー
+ * MyAI Agent Dashboard v3 — Dify-free直接実行アーキテクチャ
  *
- * 3エージェント対応:
- *   research  → 調査エージェント (advanced-chat + SearXNG検索)
- *   task      → タスクエージェント (advanced-chat + 検索/コード実行)
- *   minutes   → 議事録エージェント (workflow + Whisper音声文字起こし)
+ * 3エージェント + チャット:
+ *   research  → SearXNG検索 → LLM分析・回答 (ストリーミング)
+ *   task      → LLM計画 → 検索 or 直接推論 → LLM統合 (ストリーミング)
+ *   minutes   → スマート分割 → 順次LLM要約 → 統合 → 整形 (ストリーミング)
+ *   chat      → Ollama直接チャット (ストリーミング)
  *
- * 主要エンドポイント:
- *   POST /api/agent     - Difyエージェント実行 (SSEストリーミング)
- *   POST /api/chat      - Ollama直接チャット (SSEストリーミング)
+ * エンドポイント:
+ *   POST /api/agent      - 3エージェント実行 (SSE)
+ *   POST /api/chat       - Ollama直接チャット (SSE)
  *   POST /api/transcribe - Whisper音声文字起こし
- *   GET  /api/models    - Ollamaモデル一覧
- *   GET  /api/health    - 全サービスヘルスチェック
+ *   GET  /api/models     - Ollamaモデル一覧
+ *   GET  /api/health     - サービスヘルスチェック
  *   CRUD /api/conversations - 会話履歴管理
  */
 
@@ -24,18 +25,9 @@ const app = express();
 // ── 環境変数 ──────────────────────────────────────────────────
 const PORT = process.env.PORT || 3002;
 const OLLAMA_URL = process.env.OLLAMA_URL || 'http://host.docker.internal:11434';
-const DIFY_BASE_URL = process.env.DIFY_BASE_URL || 'http://dify-nginx/v1';
-const MCP_SERVER_URL = process.env.MCP_SERVER_URL || 'http://mcp-server:8808/sse';
 const SEARXNG_URL = process.env.SEARXNG_URL || 'http://searxng:8080';
 const WHISPER_URL = process.env.WHISPER_URL || 'http://whisper-api:8000';
 const DEFAULT_MODEL = process.env.OLLAMA_MODEL || 'gpt-oss:20b';
-
-// Dify エージェント別 API キー
-const AGENT_KEYS = {
-  research: process.env.DIFY_API_KEY_RESEARCH || '',
-  task: process.env.DIFY_API_KEY_TASK || '',
-  minutes: process.env.DIFY_API_KEY_MINUTES || '',
-};
 
 const HISTORY_DIR = path.join('/app/data/conversations');
 
@@ -50,7 +42,360 @@ app.use(express.json({ limit: '50mb' }));
 app.use(express.raw({ type: ['audio/*', 'application/octet-stream'], limit: '100mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
-// ── ルート ──────────────────────────────────────────────────────
+// ══════════════════════════════════════════════════════════════
+//  共通ユーティリティ
+// ══════════════════════════════════════════════════════════════
+
+/** SSEレスポンスを初期化し、送信ヘルパーを返す */
+function setupSSE(res) {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+
+  return {
+    send(pane, type, payload = {}) {
+      res.write(`data: ${JSON.stringify({ pane, type, ...payload })}\n\n`);
+    },
+    end() {
+      res.end();
+    },
+  };
+}
+
+/** Ollamaストリーミング呼び出し — トークンごとにコールバック */
+async function streamOllama({ model, messages, onToken, onDone, timeout = 300000 }) {
+  const upstream = await fetch(`${OLLAMA_URL}/api/chat`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: model || DEFAULT_MODEL,
+      messages,
+      stream: true,
+      options: { num_predict: 4096, repeat_penalty: 1.15 },
+    }),
+    signal: AbortSignal.timeout(timeout),
+  });
+
+  if (!upstream.ok) {
+    const errText = await upstream.text();
+    throw new Error(`Ollama応答エラー (${upstream.status}): ${errText}`);
+  }
+
+  const reader = upstream.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let fullText = '';
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        try {
+          const data = JSON.parse(line);
+          if (data.message?.content) {
+            fullText += data.message.content;
+            if (onToken) onToken(data.message.content);
+          }
+          if (data.done && onDone) onDone(fullText);
+        } catch { /* パースエラーは無視 */ }
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  return fullText;
+}
+
+/** Ollama非ストリーミング呼び出し — 計画・分類用 */
+async function callOllama({ model, messages, timeout = 120000 }) {
+  const upstream = await fetch(`${OLLAMA_URL}/api/chat`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: model || DEFAULT_MODEL,
+      messages,
+      stream: false,
+      options: { num_predict: 2048, repeat_penalty: 1.15 },
+    }),
+    signal: AbortSignal.timeout(timeout),
+  });
+
+  if (!upstream.ok) {
+    const errText = await upstream.text();
+    throw new Error(`Ollama応答エラー (${upstream.status}): ${errText}`);
+  }
+
+  const data = await upstream.json();
+  return data.message?.content || '';
+}
+
+/** SearXNG検索 */
+async function searchSearXNG(query, count = 5) {
+  const params = new URLSearchParams({
+    q: query,
+    format: 'json',
+    language: 'ja',
+    pageno: '1',
+  });
+
+  const r = await fetch(`${SEARXNG_URL}/search?${params}`, {
+    signal: AbortSignal.timeout(15000),
+  });
+
+  if (!r.ok) throw new Error(`SearXNG応答エラー (${r.status})`);
+
+  const data = await r.json();
+  return (data.results || []).slice(0, count).map(r => ({
+    title: r.title || '',
+    url: r.url || '',
+    content: r.content || '',
+  }));
+}
+
+/** テキストをスマートにチャンク分割（議事録用） */
+function smartChunk(text, maxChars = 4000, overlap = 200) {
+  if (!text || text.length <= maxChars) return [text || ''];
+
+  const chunks = [];
+  let start = 0;
+
+  while (start < text.length) {
+    let end = Math.min(start + maxChars, text.length);
+
+    if (end < text.length) {
+      // 優先分割パターン: 段落境界 > 文末 > 句読点 > スペース
+      const segment = text.slice(start, end);
+      const patterns = [/\n\n[^]*$/, /[。．！？\n][^]*$/, /[、，,][^]*$/, /\s[^]*$/];
+      for (const pat of patterns) {
+        const m = segment.slice(Math.floor(maxChars * 0.6)).match(pat);
+        if (m) {
+          end = start + Math.floor(maxChars * 0.6) + (segment.slice(Math.floor(maxChars * 0.6)).length - m[0].length) + 1;
+          break;
+        }
+      }
+    }
+
+    chunks.push(text.slice(start, end).trim());
+    start = Math.max(start + 1, end - overlap);
+  }
+
+  return chunks.filter(c => c.length > 0);
+}
+
+// ══════════════════════════════════════════════════════════════
+//  エージェント実装
+// ══════════════════════════════════════════════════════════════
+
+/** 調査エージェント: SearXNG検索 → LLM分析 */
+async function runResearchAgent(message, model, sse) {
+  // Step 1: Web検索
+  sse.send('log', 'system', { message: '🔍 Web検索を実行中...' });
+  let searchResults = [];
+  try {
+    searchResults = await searchSearXNG(message, 8);
+    sse.send('log', 'system', { message: `${searchResults.length}件の検索結果を取得` });
+  } catch (err) {
+    sse.send('log', 'system', { message: `検索失敗: ${err.message}（LLM知識のみで回答します）` });
+  }
+
+  // Step 2: 検索結果をコンテキストに組み立て
+  let context = '';
+  if (searchResults.length > 0) {
+    context = '以下はWeb検索の結果です:\n\n' +
+      searchResults.map((r, i) =>
+        `[${i + 1}] ${r.title}\nURL: ${r.url}\n${r.content}`
+      ).join('\n\n') + '\n\n';
+  }
+
+  // Step 3: LLM回答生成（ストリーミング）
+  sse.send('log', 'system', { message: '🧠 回答を生成中...' });
+
+  const systemPrompt = `あなたは優秀な調査アシスタントです。
+${context ? 'Web検索結果を分析し、' : ''}ユーザーの質問に対して正確で包括的な回答を生成してください。
+${context ? '回答の最後に【出典】として参照したURLを記載してください。' : ''}
+推論プロセスは<think>タグで囲み、その後に最終回答を出力してください。`;
+
+  const messages = [
+    { role: 'system', content: systemPrompt },
+    { role: 'user', content: context + message },
+  ];
+
+  await streamOllama({
+    model,
+    messages,
+    onToken(token) {
+      sse.send('chat', 'message_chunk', { content: token });
+    },
+    onDone() {
+      sse.send('chat', 'message_done', {});
+      sse.send('log', 'system', { message: '✅ 回答生成完了' });
+    },
+  });
+}
+
+/** タスクエージェント: LLM計画 → 検索 or 直接推論 → LLM統合 */
+async function runTaskAgent(message, model, sse) {
+  // Step 1: タスク分析・計画
+  sse.send('log', 'system', { message: '📋 タスクを分析中...' });
+
+  const planPrompt = `あなたはタスク分析アシスタントです。以下のタスクを分析し、JSON形式で計画を出力してください。
+
+タスク: ${message}
+
+以下のJSON形式で出力してください（JSON以外は出力しないこと）:
+{
+  "needs_search": true/false,
+  "search_queries": ["検索クエリ1", "検索クエリ2"],
+  "steps": ["ステップ1の説明", "ステップ2の説明"],
+  "summary": "タスクの要約"
+}
+
+needs_searchは、Web検索が必要な場合はtrue、LLMの知識だけで回答できる場合はfalseにしてください。`;
+
+  let plan;
+  try {
+    const planText = await callOllama({
+      model,
+      messages: [{ role: 'user', content: planPrompt }],
+    });
+
+    // JSONを抽出（テキスト内のJSON部分を探す）
+    const jsonMatch = planText.match(/\{[\s\S]*\}/);
+    plan = jsonMatch ? JSON.parse(jsonMatch[0]) : { needs_search: false, steps: ['直接回答'], summary: message };
+    sse.send('log', 'system', { message: `分析完了: ${plan.steps?.length || 1}ステップ、検索${plan.needs_search ? 'あり' : 'なし'}` });
+  } catch (err) {
+    sse.send('log', 'system', { message: `計画生成エラー（直接回答に切替）: ${err.message}` });
+    plan = { needs_search: false, steps: ['直接回答'], summary: message };
+  }
+
+  // Step 2: 検索が必要なら実行
+  let searchContext = '';
+  if (plan.needs_search && plan.search_queries?.length > 0) {
+    for (const query of plan.search_queries.slice(0, 3)) {
+      sse.send('log', 'system', { message: `🔍 検索: "${query}"` });
+      try {
+        const results = await searchSearXNG(query, 5);
+        searchContext += `\n【検索: ${query}】\n` +
+          results.map((r, i) => `[${i + 1}] ${r.title}: ${r.content}`).join('\n') + '\n';
+        sse.send('log', 'system', { message: `${results.length}件取得` });
+      } catch (err) {
+        sse.send('log', 'system', { message: `検索失敗: ${err.message}` });
+      }
+    }
+  }
+
+  // Step 3: 統合回答生成（ストリーミング）
+  sse.send('log', 'system', { message: '🧠 回答を生成中...' });
+
+  const systemPrompt = `あなたは優秀なタスク遂行アシスタントです。
+以下のタスクに対して、計画に基づき詳細かつ実用的な回答を生成してください。
+${searchContext ? '提供された検索結果も参考にしてください。' : ''}
+推論プロセスは<think>タグで囲み、その後に最終回答を出力してください。
+
+計画: ${JSON.stringify(plan.steps || [])}`;
+
+  const messages = [
+    { role: 'system', content: systemPrompt },
+    { role: 'user', content: searchContext ? `${message}\n\n${searchContext}` : message },
+  ];
+
+  await streamOllama({
+    model,
+    messages,
+    onToken(token) {
+      sse.send('chat', 'message_chunk', { content: token });
+    },
+    onDone() {
+      sse.send('chat', 'message_done', {});
+      sse.send('log', 'system', { message: '✅ タスク完了' });
+    },
+  });
+}
+
+/** 議事録エージェント: チャンク分割 → 順次要約 → 統合 → 整形 */
+async function runMinutesAgent(message, model, sse, minutesInputs = {}) {
+  const title = minutesInputs.title || '会議議事録';
+  const notes = minutesInputs.notes || '';
+  const format = minutesInputs.format || '標準議事録';
+
+  // Step 1: チャンク分割
+  sse.send('log', 'system', { message: '📝 テキストを分割中...' });
+  const chunks = smartChunk(message, 4000, 200);
+  sse.send('log', 'system', { message: `${chunks.length}チャンクに分割` });
+
+  // Step 2: 各チャンクを順次要約
+  const summaries = [];
+  for (let i = 0; i < chunks.length; i++) {
+    sse.send('log', 'system', { message: `📄 チャンク ${i + 1}/${chunks.length} を要約中...` });
+
+    const chunkPrompt = `以下は会議の書き起こしテキストの一部（チャンク${i + 1}/${chunks.length}）です。
+重要な発言、決定事項、アクションアイテムを抽出して要約してください。
+発言者が特定できる場合は明記してください。
+
+テキスト:
+${chunks[i]}`;
+
+    try {
+      const summary = await callOllama({
+        model,
+        messages: [{ role: 'user', content: chunkPrompt }],
+      });
+      summaries.push(summary);
+      sse.send('log', 'system', { message: `チャンク ${i + 1} 完了` });
+    } catch (err) {
+      sse.send('log', 'system', { message: `チャンク ${i + 1} エラー: ${err.message}` });
+      summaries.push(`[要約失敗: ${err.message}]`);
+    }
+  }
+
+  // Step 3: 統合・整形（ストリーミング）
+  sse.send('log', 'system', { message: '✍️ 議事録を整形中...' });
+
+  const systemPrompt = `あなたは議事録作成の専門家です。
+以下のチャンク要約を統合し、「${format}」形式の議事録を作成してください。
+
+タイトル: ${title}
+${notes ? `補足メモ: ${notes}` : ''}
+
+以下の構成で出力してください:
+# ${title}
+## 概要
+## 議題・討議内容
+## 決定事項
+## アクションアイテム
+## 次回予定（あれば）
+
+推論プロセスは<think>タグで囲み、その後に最終的な議事録を出力してください。`;
+
+  const combinedSummaries = summaries.map((s, i) => `【チャンク${i + 1}の要約】\n${s}`).join('\n\n');
+
+  await streamOllama({
+    model,
+    messages: [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: combinedSummaries },
+    ],
+    onToken(token) {
+      sse.send('chat', 'message_chunk', { content: token });
+    },
+    onDone() {
+      sse.send('chat', 'message_done', {});
+      sse.send('log', 'system', { message: '✅ 議事録作成完了' });
+    },
+  });
+}
+
+// ══════════════════════════════════════════════════════════════
+//  ルート定義
+// ══════════════════════════════════════════════════════════════
+
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
@@ -137,200 +482,55 @@ app.post('/api/chat', async (req, res) => {
   }
 });
 
-// ── Difyエージェント実行 (SSE: 左右ペイン振り分け) ────────────
+// ── エージェント実行 (SSE: 左右ペイン振り分け) ─────────────────
 app.post('/api/agent', async (req, res) => {
-  const { message, agent_type, api_key, conversation_id } = req.body;
+  const { message, agent_type, model } = req.body;
+  const useModel = model || DEFAULT_MODEL;
 
-  // APIキーの決定: リクエストのapi_keyを優先、なければenv変数
-  const resolvedKey = api_key || AGENT_KEYS[agent_type] || '';
-  if (!resolvedKey) {
-    return res.status(400).json({
-      error: `Dify APIキーが設定されていません。
-エージェント種別: ${agent_type || 'unknown'}
-環境変数 DIFY_API_KEY_${(agent_type || '').toUpperCase()} を設定するか、
-UIのAPIキー入力欄に入力してください。`,
-    });
-  }
   if (!message || !message.trim()) {
     return res.status(400).json({ error: 'メッセージが空です' });
   }
 
-  res.setHeader('Content-Type', 'text/event-stream');
-  res.setHeader('Cache-Control', 'no-cache');
-  res.setHeader('Connection', 'keep-alive');
-  res.setHeader('X-Accel-Buffering', 'no');
-
-  const sendEvent = (pane, type, payload = {}) => {
-    res.write(`data: ${JSON.stringify({ pane, type, ...payload })}\n\n`);
-  };
+  const sse = setupSSE(res);
 
   const agentLabel = {
-    research: '調査エージェント',
-    task: 'タスクエージェント',
-    minutes: '議事録エージェント',
+    research: '🔍 調査エージェント',
+    task: '🧠 タスクエージェント',
+    minutes: '📝 議事録エージェント',
   }[agent_type] || 'エージェント';
 
-  sendEvent('log', 'system', { message: `${agentLabel}を起動中...` });
+  sse.send('log', 'system', { message: `${agentLabel}を起動 (モデル: ${useModel})` });
 
   try {
-    const isWorkflow = agent_type === 'minutes';
-    const endpoint = isWorkflow
-      ? `${DIFY_BASE_URL}/workflows/run`
-      : `${DIFY_BASE_URL}/chat-messages`;
-
-    let requestBody;
-    if (isWorkflow) {
-      // 議事録エージェント: workflow モード
-      const minutesInputs = req.body.minutes_inputs || {};
-      requestBody = {
-        inputs: {
-          transcript: message,
-          title: minutesInputs.title || '会議議事録',
-          notes: minutesInputs.notes || '',
-          format: minutesInputs.format || '標準議事録',
-        },
-        response_mode: 'streaming',
-        user: 'agent-ui-user',
-      };
-    } else {
-      // research/task エージェント: advanced-chat モード
-      requestBody = {
-        inputs: {},
-        query: message,
-        response_mode: 'streaming',
-        conversation_id: conversation_id || '',
-        user: 'agent-ui-user',
-      };
-    }
-
-    const upstream = await fetch(endpoint, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${resolvedKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(requestBody),
-      signal: AbortSignal.timeout(600000),
-    });
-
-    if (!upstream.ok) {
-      const errText = await upstream.text();
-      sendEvent('log', 'error', { message: `Dify APIエラー (${upstream.status}): ${errText}` });
-      res.end();
-      return;
-    }
-
-    const reader = upstream.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = '';
-
-    try {
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
-
-        for (const line of lines) {
-          if (!line.startsWith('data: ')) continue;
-          const jsonStr = line.slice(6).trim();
-          if (!jsonStr || jsonStr === '[DONE]') continue;
-
-          try {
-            const event = JSON.parse(jsonStr);
-            const evType = event.event;
-
-            switch (evType) {
-              case 'workflow_started':
-                sendEvent('log', 'workflow_start', {
-                  message: `ワークフロー開始 (ID: ${event.workflow_run_id?.slice(0, 8) || '-'})`,
-                });
-                break;
-              case 'node_started':
-                sendEvent('log', 'node_start', {
-                  node_id: event.data?.node_id,
-                  title: event.data?.title || event.data?.node_type || '処理中',
-                  type: event.data?.node_type,
-                });
-                break;
-              case 'node_finished':
-                sendEvent('log', 'node_done', {
-                  node_id: event.data?.node_id,
-                  title: event.data?.title || event.data?.node_type || '完了',
-                  elapsed: event.data?.elapsed_time?.toFixed(2),
-                  status: event.data?.status,
-                  error: event.data?.error,
-                  // HTTPノードの検索クエリを可視化
-                  outputs: event.data?.node_type === 'http-request'
-                    ? { status_code: event.data?.outputs?.status_code }
-                    : undefined,
-                });
-                break;
-              case 'workflow_finished':
-                sendEvent('log', 'workflow_done', {
-                  message: `完了 (${(event.data?.elapsed_time || 0).toFixed(2)}s)`,
-                  status: event.data?.status,
-                });
-                if (event.data?.outputs) {
-                  const output = Object.values(event.data.outputs).join('\n\n');
-                  if (output.trim()) {
-                    sendEvent('chat', 'message_chunk', { content: output });
-                    sendEvent('chat', 'message_done', {});
-                  }
-                }
-                break;
-              case 'agent_message':
-              case 'message':
-                if (event.answer) {
-                  sendEvent('chat', 'message_chunk', { content: event.answer });
-                }
-                break;
-              case 'message_end':
-                sendEvent('chat', 'message_done', { conversation_id: event.conversation_id });
-                break;
-              case 'error':
-                sendEvent('log', 'error', { message: event.message || 'エラーが発生しました' });
-                sendEvent('chat', 'message_error', { message: event.message || 'エラー' });
-                break;
-              case 'iteration_started':
-                sendEvent('log', 'iter_start', {
-                  title: `イテレーション開始 (合計: ${event.data?.inputs?.length || '?'} チャンク)`,
-                });
-                break;
-              case 'iteration_next':
-                sendEvent('log', 'iter_next', {
-                  title: `チャンク処理中 (${(event.data?.index || 0) + 1}/${event.data?.inputs?.length || '?'})`,
-                });
-                break;
-              case 'iteration_completed':
-                sendEvent('log', 'iter_done', { title: 'イテレーション完了' });
-                break;
-            }
-          } catch { /* パースエラーは無視 */ }
-        }
-      }
-    } finally {
-      res.end();
+    switch (agent_type) {
+      case 'research':
+        await runResearchAgent(message, useModel, sse);
+        break;
+      case 'task':
+        await runTaskAgent(message, useModel, sse);
+        break;
+      case 'minutes':
+        await runMinutesAgent(message, useModel, sse, req.body.minutes_inputs);
+        break;
+      default:
+        sse.send('log', 'error', { message: `未知のエージェント種別: ${agent_type}` });
+        sse.send('chat', 'message_error', { message: 'エージェント種別が不正です' });
     }
   } catch (error) {
-    console.error('[agent] Error:', error.message);
+    console.error(`[agent:${agent_type}] Error:`, error.message);
+    sse.send('log', 'error', { message: `エラー: ${error.message}` });
     if (!res.headersSent) {
-      res.status(502).json({ error: `エージェントエラー: ${error.message}` });
-    } else {
-      sendEvent('log', 'error', { message: `接続エラー: ${error.message}` });
-      res.end();
+      sse.send('chat', 'message_error', { message: error.message });
     }
+  } finally {
+    sse.end();
   }
 });
 
 // ── Whisper 音声文字起こし ──────────────────────────────────────
-// 音声ファイルを受け取り Whisper API に転送して文字起こしを返す
-// Content-Type: multipart/form-data (audio field)
 app.post('/api/transcribe', async (req, res) => {
   try {
-    // バッファとして受け取った音声データ + ファイルメタ情報
-    const audioBuffer = req.body; // express.raw() で取得
+    const audioBuffer = req.body;
     const filename = req.headers['x-filename'] || 'audio.wav';
     const mimeType = req.headers['content-type'] || 'audio/wav';
 
@@ -338,7 +538,6 @@ app.post('/api/transcribe', async (req, res) => {
       return res.status(400).json({ error: '音声データが空です' });
     }
 
-    // Whisper API へ multipart/form-data で転送
     const formData = new FormData();
     const blob = new Blob([audioBuffer], { type: mimeType });
     formData.append('file', blob, filename);
@@ -349,7 +548,7 @@ app.post('/api/transcribe', async (req, res) => {
     const whisperRes = await fetch(`${WHISPER_URL}/v1/audio/transcriptions`, {
       method: 'POST',
       body: formData,
-      signal: AbortSignal.timeout(300000), // 最大5分
+      signal: AbortSignal.timeout(300000),
     });
 
     if (!whisperRes.ok) {
@@ -377,7 +576,7 @@ app.get('/api/models', async (req, res) => {
   }
 });
 
-// ── ヘルスチェック (全サービス) ─────────────────────────────────
+// ── ヘルスチェック ─────────────────────────────────────────────
 app.get('/api/health', async (req, res) => {
   const checks = {};
 
@@ -392,25 +591,9 @@ app.get('/api/health', async (req, res) => {
 
   await Promise.all([
     checkService('ollama', `${OLLAMA_URL}/api/tags`),
-    checkService('dify', `${DIFY_BASE_URL.replace('/v1', '')}/health`),
     checkService('searxng', `${SEARXNG_URL}/search?q=test&format=json`, 8000),
     checkService('whisper', `${WHISPER_URL}/health`, 5000),
-    (async () => {
-      try {
-        await fetch(MCP_SERVER_URL, { signal: AbortSignal.timeout(3000) });
-        checks.mcp = 'running';
-      } catch {
-        checks.mcp = 'offline';
-      }
-    })(),
   ]);
-
-  // エージェントAPIキーの設定状態
-  checks.api_keys = {
-    research: AGENT_KEYS.research ? 'configured' : 'missing',
-    task: AGENT_KEYS.task ? 'configured' : 'missing',
-    minutes: AGENT_KEYS.minutes ? 'configured' : 'missing',
-  };
 
   res.json({ ...checks, timestamp: new Date().toISOString() });
 });
@@ -486,18 +669,13 @@ app.delete('/api/conversations/:id', (req, res) => {
 const server = app.listen(PORT, '0.0.0.0', () => {
   console.log('');
   console.log('  ╔══════════════════════════════════════════╗');
-  console.log('  ║   MyAI Agent Dashboard v2                ║');
+  console.log('  ║   MyAI Agent Dashboard v3  (Dify-free)   ║');
   console.log('  ╚══════════════════════════════════════════╝');
   console.log(`  → http://localhost:${PORT}`);
   console.log(`  Ollama:   ${OLLAMA_URL}`);
-  console.log(`  Dify:     ${DIFY_BASE_URL}`);
   console.log(`  SearXNG:  ${SEARXNG_URL}`);
   console.log(`  Whisper:  ${WHISPER_URL}`);
-  console.log('');
-  console.log('  Dify APIキー設定状態:');
-  console.log(`  Research: ${AGENT_KEYS.research ? '✓ 設定済み' : '✗ 未設定 (DIFY_API_KEY_RESEARCH)'}`);
-  console.log(`  Task:     ${AGENT_KEYS.task ? '✓ 設定済み' : '✗ 未設定 (DIFY_API_KEY_TASK)'}`);
-  console.log(`  Minutes:  ${AGENT_KEYS.minutes ? '✓ 設定済み' : '✗ 未設定 (DIFY_API_KEY_MINUTES)'}`);
+  console.log(`  Model:    ${DEFAULT_MODEL}`);
   console.log('');
 });
 
