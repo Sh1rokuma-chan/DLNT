@@ -1,862 +1,104 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>MyAI Agent Dashboard v2</title>
-<style>
-  :root {
-    --bg: #212121;
-    --sidebar: #171717;
-    --surface: #2f2f2f;
-    --surface2: #3a3a3a;
-    --border: #404040;
-    --text: #ececec;
-    --text-muted: #8e8ea0;
-    --accent: #10a37f;
-    --accent-hover: #0d8a6a;
-    --accent-dim: rgba(16,163,127,0.15);
-    --danger: #ef4444;
-    --warning: #f59e0b;
-    --success: #10a37f;
-    --info: #818cf8;
-    --log-bg: #1a1a1a;
-    --font: -apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif;
-    --mono: "SF Mono", "Fira Code", "Consolas", monospace;
-  }
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body {
-    font-family: var(--font);
-    background: var(--bg);
-    color: var(--text);
-    height: 100vh;
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-  }
-
-  /* ── ヘッダー ─────────────────────────────── */
-  header {
-    background: var(--sidebar);
-    border-bottom: 1px solid var(--border);
-    padding: 0 16px;
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    flex-shrink: 0;
-    height: 52px;
-  }
-  .logo {
-    font-size: 15px;
-    font-weight: 700;
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    white-space: nowrap;
-  }
-  .logo-icon {
-    width: 26px; height: 26px;
-    background: var(--accent);
-    border-radius: 6px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 13px;
-  }
-
-  /* ── エージェント選択タブ ─────────────────── */
-  .agent-tabs {
-    display: flex;
-    gap: 4px;
-    background: var(--bg);
-    padding: 4px;
-    border-radius: 8px;
-    border: 1px solid var(--border);
-  }
-  .agent-tab {
-    padding: 5px 12px;
-    border-radius: 5px;
-    font-size: 12px;
-    font-weight: 500;
-    cursor: pointer;
-    border: none;
-    background: transparent;
-    color: var(--text-muted);
-    white-space: nowrap;
-    transition: all 0.15s;
-    font-family: var(--font);
-  }
-  .agent-tab:hover { color: var(--text); background: var(--surface); }
-  .agent-tab.active { background: var(--accent); color: #fff; }
-
-  .header-right {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    margin-left: auto;
-  }
-  select {
-    font-family: var(--font);
-    font-size: 12px;
-    border-radius: 6px;
-    border: 1px solid var(--border);
-    background: var(--surface);
-    color: var(--text);
-    padding: 5px 10px;
-    cursor: pointer;
-    outline: none;
-  }
-  select:hover, select:focus { border-color: var(--accent); }
-  .status-badge {
-    display: flex;
-    align-items: center;
-    gap: 5px;
-    padding: 4px 10px;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 20px;
-    font-size: 11px;
-    color: var(--text-muted);
-    white-space: nowrap;
-  }
-  .status-dot {
-    width: 7px; height: 7px;
-    border-radius: 50%;
-    background: var(--text-muted);
-    flex-shrink: 0;
-  }
-  .status-dot.ok { background: var(--success); }
-  .status-dot.err { background: var(--danger); }
-  .status-dot.warn { background: var(--warning); }
-  .btn-new {
-    font-family: var(--font);
-    font-size: 12px;
-    padding: 5px 12px;
-    border-radius: 6px;
-    border: 1px solid var(--accent);
-    background: var(--accent);
-    color: #fff;
-    cursor: pointer;
-    font-weight: 500;
-    white-space: nowrap;
-    transition: background 0.15s;
-  }
-  .btn-new:hover { background: var(--accent-hover); }
-
-  /* ── メインレイアウト ─────────────────────── */
-  .main {
-    display: flex;
-    flex: 1;
-    overflow: hidden;
-    min-height: 0;
-  }
-
-  /* ── チャットペイン (左) ─────────────────── */
-  .chat-pane {
-    display: flex;
-    flex-direction: column;
-    flex: 1 1 55%;
-    min-width: 320px;
-    border-right: 1px solid var(--border);
-    overflow: hidden;
-  }
-  .pane-header {
-    padding: 7px 16px;
-    font-size: 11px;
-    font-weight: 600;
-    color: var(--text-muted);
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    border-bottom: 1px solid var(--border);
-    background: var(--sidebar);
-    flex-shrink: 0;
-    display: flex;
-    align-items: center;
-    gap: 6px;
-  }
-  .pane-tag {
-    font-size: 10px;
-    padding: 2px 6px;
-    border-radius: 3px;
-    background: var(--accent-dim);
-    color: var(--accent);
-    font-weight: 600;
-    text-transform: none;
-  }
-  #chat-messages {
-    flex: 1;
-    overflow-y: auto;
-    padding: 16px;
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
-    scroll-behavior: smooth;
-  }
-  .message {
-    display: flex;
-    flex-direction: column;
-    max-width: 88%;
-    gap: 4px;
-  }
-  .message.user { align-self: flex-end; align-items: flex-end; }
-  .message.ai { align-self: flex-start; align-items: flex-start; }
-  .msg-role { font-size: 11px; font-weight: 600; color: var(--text-muted); padding: 0 2px; }
-  .msg-bubble {
-    padding: 10px 14px;
-    border-radius: 12px;
-    font-size: 14px;
-    line-height: 1.65;
-    white-space: pre-wrap;
-    word-break: break-word;
-  }
-  .message.user .msg-bubble {
-    background: var(--surface2);
-    border-radius: 12px 12px 2px 12px;
-  }
-  .message.ai .msg-bubble {
-    background: transparent;
-    border: 1px solid var(--border);
-    border-radius: 12px 12px 12px 2px;
-  }
-  .msg-bubble .think {
-    color: var(--text-muted);
-    font-size: 12px;
-    font-style: italic;
-    border-left: 2px solid var(--border);
-    padding-left: 8px;
-    margin-bottom: 8px;
-  }
-  .typing-indicator {
-    display: flex;
-    gap: 4px;
-    padding: 10px 14px;
-    background: var(--surface);
-    border-radius: 12px;
-    width: fit-content;
-  }
-  .typing-indicator span {
-    width: 6px; height: 6px;
-    background: var(--text-muted);
-    border-radius: 50%;
-    animation: bounce 1.2s infinite;
-  }
-  .typing-indicator span:nth-child(2) { animation-delay: 0.2s; }
-  .typing-indicator span:nth-child(3) { animation-delay: 0.4s; }
-  @keyframes bounce {
-    0%, 80%, 100% { transform: translateY(0); }
-    40% { transform: translateY(-6px); }
-  }
-
-  /* ── ログペイン (右) ─────────────────────── */
-  .log-pane {
-    display: flex;
-    flex-direction: column;
-    flex: 1 1 45%;
-    min-width: 280px;
-    background: var(--log-bg);
-    overflow: hidden;
-  }
-  #workflow-log {
-    flex: 1;
-    overflow-y: auto;
-    padding: 10px;
-    display: flex;
-    flex-direction: column;
-    gap: 3px;
-    font-size: 11.5px;
-    font-family: var(--mono);
-  }
-  .log-entry {
-    display: flex;
-    align-items: baseline;
-    gap: 7px;
-    padding: 3px 6px;
-    border-radius: 4px;
-    line-height: 1.5;
-  }
-  .log-entry:hover { background: rgba(255,255,255,0.03); }
-  .log-icon { flex-shrink: 0; font-size: 12px; }
-  .log-time { color: var(--text-muted); font-size: 10px; flex-shrink: 0; min-width: 50px; }
-  .log-text { color: var(--text); flex: 1; word-break: break-word; }
-  .log-elapsed { color: var(--text-muted); font-size: 10px; flex-shrink: 0; }
-  .log-entry.start .log-icon { color: var(--accent); }
-  .log-entry.done .log-icon { color: var(--success); }
-  .log-entry.error .log-icon { color: var(--danger); }
-  .log-entry.system .log-icon { color: var(--warning); }
-  .log-entry.iter .log-icon { color: var(--info); }
-  .log-placeholder {
-    color: var(--text-muted);
-    font-size: 12px;
-    text-align: center;
-    margin-top: 32px;
-    font-family: var(--font);
-    line-height: 1.8;
-  }
-
-  /* ── 入力エリア ─────────────────────────── */
-  .input-area {
-    padding: 10px 14px 12px;
-    border-top: 1px solid var(--border);
-    background: var(--bg);
-    flex-shrink: 0;
-  }
-  .agent-config {
-    display: none;
-    flex-direction: column;
-    gap: 6px;
-    margin-bottom: 8px;
-    padding: 10px;
-    background: var(--surface);
-    border-radius: 8px;
-    border: 1px solid var(--border);
-  }
-  .agent-config.show { display: flex; }
-  .config-row {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-  .config-row label { font-size: 11px; color: var(--text-muted); white-space: nowrap; min-width: 80px; }
-  .config-input {
-    flex: 1;
-    background: var(--bg);
-    border: 1px solid var(--border);
-    border-radius: 5px;
-    color: var(--text);
-    font-size: 12px;
-    padding: 4px 8px;
-    outline: none;
-    font-family: var(--mono);
-  }
-  .config-input:focus { border-color: var(--accent); }
-  .config-select {
-    flex: 1;
-    background: var(--bg);
-    border: 1px solid var(--border);
-    border-radius: 5px;
-    color: var(--text);
-    font-size: 12px;
-    padding: 4px 8px;
-    outline: none;
-  }
-  .audio-area {
-    display: none;
-    flex-direction: column;
-    gap: 6px;
-    margin-bottom: 8px;
-    padding: 10px;
-    background: var(--surface);
-    border-radius: 8px;
-    border: 1px solid var(--border);
-  }
-  .audio-area.show { display: flex; }
-  .audio-controls {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    flex-wrap: wrap;
-  }
-  .btn-audio {
-    font-family: var(--font);
-    font-size: 12px;
-    padding: 5px 12px;
-    border-radius: 6px;
-    border: 1px solid var(--border);
-    background: var(--surface2);
-    color: var(--text);
-    cursor: pointer;
-    transition: all 0.15s;
-    display: flex;
-    align-items: center;
-    gap: 5px;
-  }
-  .btn-audio:hover { border-color: var(--accent); color: var(--accent); }
-  .btn-audio.recording {
-    background: rgba(239,68,68,0.15);
-    border-color: var(--danger);
-    color: var(--danger);
-    animation: pulse 1s infinite;
-  }
-  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.6; } }
-  .audio-status { font-size: 11px; color: var(--text-muted); flex: 1; }
-  .audio-file-label { font-size: 11px; color: var(--text-muted); }
-  #audio-file-input { display: none; }
-  .input-row { display: flex; gap: 8px; align-items: flex-end; }
-  #message-input {
-    flex: 1;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    color: var(--text);
-    font-size: 14px;
-    font-family: var(--font);
-    padding: 10px 14px;
-    resize: none;
-    min-height: 42px;
-    max-height: 160px;
-    line-height: 1.5;
-    outline: none;
-    transition: border-color 0.15s;
-    overflow-y: auto;
-  }
-  #message-input:focus { border-color: var(--accent); }
-  #message-input::placeholder { color: var(--text-muted); }
-  #send-btn, #stop-btn {
-    width: 40px; height: 40px;
-    padding: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: 8px;
-    color: #fff;
-    font-size: 15px;
-    flex-shrink: 0;
-    transition: background 0.15s, opacity 0.15s;
-    cursor: pointer;
-    font-family: var(--font);
-  }
-  #send-btn { background: var(--accent); border: 1px solid var(--accent); }
-  #send-btn:hover { background: var(--accent-hover); }
-  #send-btn:disabled { opacity: 0.4; cursor: not-allowed; }
-  #stop-btn { background: var(--danger); border: 1px solid var(--danger); display: none; }
-  #stop-btn:hover { opacity: 0.85; }
-  ::-webkit-scrollbar { width: 6px; height: 6px; }
-  ::-webkit-scrollbar-track { background: transparent; }
-  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
-  ::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
-</style>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MyAI Agent Dashboard v3</title>
+  <link rel="stylesheet" href="./styles.css" />
 </head>
 <body>
-
-<!-- ── ヘッダー ───────────────────────────────────────────── -->
-<header>
-  <div class="logo">
-    <div class="logo-icon">M</div>
-    MyAI
-  </div>
-
-  <div class="agent-tabs" id="agent-tabs">
-    <button class="agent-tab" data-agent="chat" onclick="switchAgent('chat')">💬 チャット</button>
-    <button class="agent-tab" data-agent="research" onclick="switchAgent('research')">🔍 調査</button>
-    <button class="agent-tab" data-agent="task" onclick="switchAgent('task')">🧠 タスク</button>
-    <button class="agent-tab" data-agent="minutes" onclick="switchAgent('minutes')">📝 議事録</button>
-  </div>
-
-  <div class="header-right">
-    <select id="model-select" title="Ollamaモデルを選択">
-      <option value="gpt-oss:20b">gpt-oss:20b</option>
-    </select>
-    <div class="status-badge">
-      <span class="status-dot" id="status-dot"></span>
-      <span id="status-text">確認中...</span>
-    </div>
-    <button class="btn-new" onclick="newChat()">+ 新規</button>
-  </div>
-</header>
-
-<!-- ── メインレイアウト ──────────────────────────────────── -->
-<div class="main">
-  <div class="chat-pane">
-    <div class="pane-header">
-      💬 チャット
-      <span class="pane-tag" id="pane-agent-tag">チャット</span>
-    </div>
-    <div id="chat-messages">
-      <div class="message ai">
-        <div class="msg-role">MyAI</div>
-        <div class="msg-bubble">こんにちは！MyAI Agent Dashboard v2 へようこそ。<br><br>
-        上のタブでエージェントを選択してください:<br>
-        <strong>💬 チャット</strong> — Ollamaに直接接続<br>
-        <strong>🔍 調査</strong> — Web検索して最新情報を回答<br>
-        <strong>🧠 タスク</strong> — 複数ステップのタスクを自律実行<br>
-        <strong>📝 議事録</strong> — 音声/テキストを高品質な議事録に変換</div>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="logo-icon">M</div>
+        <div>
+          <h1>MyAI</h1>
+          <p>Agent Dashboard v3</p>
+        </div>
       </div>
-    </div>
-  </div>
 
-  <div class="log-pane">
-    <div class="pane-header">📋 実行ログ</div>
-    <div id="workflow-log">
-      <div class="log-placeholder">
-        エージェント実行時に<br>ノードの処理状況が<br>ここに表示されます
+      <div class="quick-actions">
+        <button class="btn btn-primary" onclick="newChat()">+ 新規会話</button>
       </div>
-    </div>
-  </div>
-</div>
 
-<!-- ── 入力エリア ─────────────────────────────────────────── -->
-<div class="input-area">
-  <!-- エージェント設定パネル -->
-  <div class="agent-config" id="agent-config">
-    <div class="config-row">
-      <label>Dify APIキー</label>
-      <input type="password" class="config-input" id="api-key-input"
-             placeholder="app-xxxxxxxxxxxx (未設定の場合は環境変数から自動取得)" />
-    </div>
-    <div id="minutes-config" style="display:none; flex-direction:column; gap:6px;">
-      <div class="config-row">
-        <label>会議タイトル</label>
-        <input type="text" class="config-input" id="meeting-title" placeholder="例: 週次定例ミーティング" />
+      <nav class="agent-nav" id="agent-tabs">
+        <button class="agent-tab" data-agent="chat" onclick="switchAgent('chat')">💬 チャット</button>
+        <button class="agent-tab" data-agent="research" onclick="switchAgent('research')">🔍 調査</button>
+        <button class="agent-tab" data-agent="task" onclick="switchAgent('task')">🧠 タスク</button>
+        <button class="agent-tab" data-agent="minutes" onclick="switchAgent('minutes')">📝 議事録</button>
+      </nav>
+
+      <div class="status-card">
+        <div class="status-head">システム状態</div>
+        <div class="status-badge">
+          <span class="status-dot" id="status-dot"></span>
+          <span id="status-text">接続確認中...</span>
+        </div>
       </div>
-      <div class="config-row">
-        <label>出力形式</label>
-        <select class="config-select" id="minutes-format">
-          <option value="標準議事録">標準議事録</option>
-          <option value="アクションアイテム重視">アクションアイテム重視</option>
-          <option value="要約のみ">要約のみ</option>
-        </select>
-      </div>
-    </div>
+    </aside>
+
+    <main class="workspace">
+      <header class="topbar">
+        <div>
+          <div class="panel-label">現在のエージェント</div>
+          <div class="agent-pill" id="pane-agent-tag">Ollama直接</div>
+        </div>
+        <select id="model-select" title="Ollamaモデルを選択"></select>
+      </header>
+
+      <section class="content-grid">
+        <section class="chat-pane panel">
+          <div class="panel-title">Conversation</div>
+          <div id="chat-messages"></div>
+        </section>
+
+        <section class="log-pane panel">
+          <div class="panel-title">Workflow Log</div>
+          <div id="workflow-log"></div>
+        </section>
+      </section>
+
+      <section class="composer panel">
+        <div class="agent-config" id="agent-config">
+          <div class="config-row">
+            <label>API Key</label>
+            <input type="password" class="config-input" id="api-key-input" placeholder="app-xxxxxxxxxxxx (未設定の場合は環境変数から自動取得)" />
+          </div>
+          <div id="minutes-config" style="display:none; flex-direction:column; gap:6px;">
+            <div class="config-row">
+              <label>会議タイトル</label>
+              <input type="text" class="config-input" id="meeting-title" placeholder="例: 週次定例ミーティング" />
+            </div>
+            <div class="config-row">
+              <label>出力形式</label>
+              <select class="config-select" id="minutes-format">
+                <option value="標準議事録">標準議事録</option>
+                <option value="アクションアイテム重視">アクションアイテム重視</option>
+                <option value="要約のみ">要約のみ</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <div class="audio-area" id="audio-area">
+          <div class="audio-file-label">🎵 音声ファイルをアップロードするか、マイクで録音してください</div>
+          <div class="audio-controls">
+            <button class="btn-audio" id="btn-record" onclick="toggleRecording()">🎙️ 録音開始</button>
+            <button class="btn-audio" onclick="document.getElementById('audio-file-input').click()">📁 ファイル選択</button>
+            <input type="file" id="audio-file-input" accept="audio/*,.mp3,.m4a,.wav,.ogg,.webm" onchange="handleAudioFile(this)" />
+            <span class="audio-status" id="audio-status">音声なし (テキスト入力も使用可)</span>
+          </div>
+        </div>
+
+        <div class="input-row">
+          <textarea id="message-input" rows="1" placeholder="メッセージを入力... (Shift+Enter で改行、Enter で送信)"></textarea>
+          <button id="send-btn" onclick="sendMessage()" title="送信">▶</button>
+          <button id="stop-btn" onclick="stopGeneration()" title="生成を停止">■</button>
+        </div>
+      </section>
+    </main>
   </div>
 
-  <!-- 音声入力パネル -->
-  <div class="audio-area" id="audio-area">
-    <div class="audio-file-label">🎵 音声ファイルをアップロードするか、マイクで録音してください</div>
-    <div class="audio-controls">
-      <button class="btn-audio" id="btn-record" onclick="toggleRecording()">🎙️ 録音開始</button>
-      <button class="btn-audio" onclick="document.getElementById('audio-file-input').click()">📁 ファイル選択</button>
-      <input type="file" id="audio-file-input" accept="audio/*,.mp3,.m4a,.wav,.ogg,.webm"
-             onchange="handleAudioFile(this)" />
-      <span class="audio-status" id="audio-status">音声なし (テキスト入力も使用可)</span>
-    </div>
-  </div>
-
-  <div class="input-row">
-    <textarea id="message-input" rows="1"
-      placeholder="メッセージを入力... (Shift+Enter で改行、Enter で送信)"></textarea>
-    <button id="send-btn" onclick="sendMessage()" title="送信">▶</button>
-    <button id="stop-btn" onclick="stopGeneration()" title="生成を停止">■</button>
-  </div>
-</div>
-
-<script>
-const API_BASE = '/agent';
-
-const state = {
-  agent: 'chat',
-  messages: [],
-  isLoading: false,
-  conversationId: null,
-  currentAiMessageEl: null,
-  currentAiContent: '',
-  abortController: null,
-  audioBlob: null,
-  mediaRecorder: null,
-  recordingChunks: [],
-};
-
-const chatEl = document.getElementById('chat-messages');
-const logEl = document.getElementById('workflow-log');
-const inputEl = document.getElementById('message-input');
-const sendBtn = document.getElementById('send-btn');
-const stopBtn = document.getElementById('stop-btn');
-const modelSelect = document.getElementById('model-select');
-const apiKeyInput = document.getElementById('api-key-input');
-const agentConfig = document.getElementById('agent-config');
-const minutesConfig = document.getElementById('minutes-config');
-const audioArea = document.getElementById('audio-area');
-const audioStatus = document.getElementById('audio-status');
-const paneAgentTag = document.getElementById('pane-agent-tag');
-
-const AGENT_CFG = {
-  chat:     { tag: 'Ollama直接',   placeholder: 'メッセージを入力... (Shift+Enter で改行、Enter で送信)', showConfig: false, showMinutes: false, showAudio: false },
-  research: { tag: 'Web検索',      placeholder: '調査したい内容を入力してください...', showConfig: true, showMinutes: false, showAudio: false },
-  task:     { tag: 'マルチステップ', placeholder: 'こなしてほしいタスクを説明してください...', showConfig: true, showMinutes: false, showAudio: false },
-  minutes:  { tag: '議事録作成',   placeholder: '会議の文字起こし・議事メモをここに貼り付けてください...', showConfig: true, showMinutes: true, showAudio: true },
-};
-
-function switchAgent(agent) {
-  state.agent = agent;
-  const cfg = AGENT_CFG[agent];
-  document.querySelectorAll('.agent-tab').forEach(t => t.classList.toggle('active', t.dataset.agent === agent));
-  agentConfig.classList.toggle('show', cfg.showConfig);
-  minutesConfig.style.display = cfg.showMinutes ? 'flex' : 'none';
-  audioArea.classList.toggle('show', cfg.showAudio);
-  modelSelect.style.display = agent === 'chat' ? 'inline-block' : 'none';
-  inputEl.placeholder = cfg.placeholder;
-  paneAgentTag.textContent = cfg.tag;
-  if (!cfg.showAudio) { state.audioBlob = null; audioStatus.textContent = '音声なし (テキスト入力も使用可)'; }
-  clearLog();
-}
-
-async function checkHealth() {
-  try {
-    const r = await fetch(`${API_BASE}/api/health`);
-    const data = await r.json();
-    const dot = document.getElementById('status-dot');
-    const txt = document.getElementById('status-text');
-    const offline = ['ollama','dify','searxng','whisper'].filter(s => data[s] !== 'running');
-    if (offline.length === 0) { dot.className = 'status-dot ok'; txt.textContent = '全サービス稼働中'; }
-    else if (data.ollama === 'running') { dot.className = 'status-dot warn'; txt.textContent = `Ollama稼働 / ${offline.join('+')}オフライン`; }
-    else { dot.className = 'status-dot err'; txt.textContent = 'Ollamaオフライン'; }
-  } catch {
-    document.getElementById('status-dot').className = 'status-dot err';
-    document.getElementById('status-text').textContent = '接続エラー';
-  }
-}
-
-async function loadModels() {
-  try {
-    const r = await fetch(`${API_BASE}/api/models`);
-    const models = await r.json();
-    if (Array.isArray(models) && models.length > 0) {
-      modelSelect.innerHTML = '';
-      for (const m of models) {
-        const opt = document.createElement('option');
-        opt.value = m.name;
-        opt.textContent = m.name;
-        opt.selected = m.name === 'gpt-oss:20b';
-        modelSelect.appendChild(opt);
-      }
-    }
-  } catch {}
-}
-
-inputEl.addEventListener('input', () => { inputEl.style.height = 'auto'; inputEl.style.height = Math.min(inputEl.scrollHeight, 160) + 'px'; });
-inputEl.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } });
-
-async function sendMessage() {
-  const text = inputEl.value.trim();
-  if ((!text && !state.audioBlob) || state.isLoading) return;
-  inputEl.value = '';
-  inputEl.style.height = 'auto';
-  setLoading(true);
-  const finalText = text || '[音声入力]';
-  addMessage('user', finalText);
-  state.messages.push({ role: 'user', content: finalText });
-  if (state.agent === 'chat') await runChat(finalText);
-  else await runAgent(finalText);
-  setLoading(false);
-}
-
-async function runChat(text) {
-  clearLog();
-  const aiEl = addMessage('ai', '');
-  state.currentAiMessageEl = aiEl.querySelector('.msg-bubble');
-  state.currentAiContent = '';
-  const controller = new AbortController();
-  state.abortController = controller;
-  try {
-    const r = await fetch(`${API_BASE}/api/chat`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message: text, history: state.messages.slice(-12), model: modelSelect.value }),
-      signal: controller.signal,
-    });
-    if (!r.ok) { updateAiMessage(`[エラー] ${(await r.json()).error}`); return; }
-    const reader = r.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = '';
-    while (true) {
-      let done, value;
-      try { ({ done, value } = await reader.read()); } catch(e) { if (e.name === 'AbortError') break; throw e; }
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const chunks = buffer.split('\n\n');
-      buffer = chunks.pop() || '';
-      for (const chunk of chunks) {
-        if (!chunk.startsWith('data: ')) continue;
-        try { const d = JSON.parse(chunk.slice(6)); if (d.event === 'chat_token' && d.content) { state.currentAiContent += d.content; renderAiContent(state.currentAiContent); } } catch {}
-      }
-    }
-    if (state.currentAiContent) state.messages.push({ role: 'assistant', content: state.currentAiContent });
-  } catch(err) { if (err.name !== 'AbortError') updateAiMessage(`[接続エラー] ${err.message}`); }
-  finally { state.abortController = null; }
-}
-
-async function runAgent(text) {
-  let finalText = text;
-  if (state.agent === 'minutes' && state.audioBlob) {
-    clearLog();
-    addLogEntry('system', '🎙️', 'Whisperで音声を文字起こし中...');
-    try {
-      const ab = await state.audioBlob.arrayBuffer();
-      const r = await fetch(`${API_BASE}/api/transcribe`, {
-        method: 'POST',
-        headers: { 'Content-Type': state.audioBlob.type || 'audio/wav', 'X-Filename': 'recording.wav' },
-        body: ab,
-      });
-      if (r.ok) {
-        const data = await r.json();
-        finalText = data.text || text;
-        addLogEntry('done', '✓', `文字起こし完了 (${finalText.length}文字)`);
-        if (!text) { addMessage('user', `[音声→テキスト]\n${finalText}`); state.messages.push({ role: 'user', content: finalText }); }
-      } else { addLogEntry('error', '✗', 'Whisper接続失敗。テキスト入力を使用します'); }
-    } catch(err) { addLogEntry('error', '✗', `文字起こしエラー: ${err.message}`); }
-    state.audioBlob = null;
-    audioStatus.textContent = '音声なし (テキスト入力も使用可)';
-  } else {
-    clearLog();
-    addLogEntry('system', '⚡', `エージェントを起動中...`);
-  }
-  const aiEl = addMessage('ai', '');
-  state.currentAiMessageEl = aiEl.querySelector('.msg-bubble');
-  state.currentAiContent = '';
-  const body = {
-    message: finalText,
-    agent_type: state.agent,
-    api_key: apiKeyInput.value.trim(),
-    conversation_id: state.conversationId,
-  };
-  if (state.agent === 'minutes') {
-    body.minutes_inputs = {
-      title: document.getElementById('meeting-title').value || '会議議事録',
-      format: document.getElementById('minutes-format').value || '標準議事録',
-      notes: '',
-    };
-  }
-  try {
-    const r = await fetch(`${API_BASE}/api/agent`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-    if (!r.ok) {
-      const err = await r.json();
-      addLogEntry('error', '✗', err.error || 'エラー');
-      updateAiMessage(`[エラー] ${err.error}`);
-      return;
-    }
-    const reader = r.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = '';
-    const startTimes = {};
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const chunks = buffer.split('\n\n');
-      buffer = chunks.pop() || '';
-      for (const chunk of chunks) {
-        if (!chunk.startsWith('data: ')) continue;
-        try { handleAgentEvent(JSON.parse(chunk.slice(6)), startTimes); } catch {}
-      }
-    }
-    if (state.currentAiContent) state.messages.push({ role: 'assistant', content: state.currentAiContent });
-  } catch(err) { addLogEntry('error', '✗', `接続エラー: ${err.message}`); updateAiMessage(`[接続エラー] ${err.message}`); }
-}
-
-function handleAgentEvent(data, startTimes) {
-  const now = new Date().toLocaleTimeString('ja-JP', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
-  switch (data.type) {
-    case 'workflow_start': addLogEntry('start', '▶', data.message || 'ワークフロー開始', now); break;
-    case 'node_start':
-      startTimes[data.node_id] = Date.now();
-      addLogEntry('start', '⏳', data.title || '処理中', now, null, data.node_id);
-      break;
-    case 'node_done': {
-      const e = startTimes[data.node_id] ? ((Date.now() - startTimes[data.node_id]) / 1000).toFixed(1) : data.elapsed;
-      addLogEntry(data.status !== 'failed' ? 'done' : 'error', data.status !== 'failed' ? '✓' : '✗', data.title || '完了', now, e ? `${e}s` : null);
-      if (data.error) addLogEntry('error', '⚠', `エラー: ${data.error}`, now);
-      break;
-    }
-    case 'workflow_done': addLogEntry('done', '✅', data.message || '完了', now); break;
-    case 'iter_start':  addLogEntry('iter', '↻', data.title, now); break;
-    case 'iter_next':   addLogEntry('iter', '↺', data.title, now); break;
-    case 'iter_done':   addLogEntry('iter', '✓', data.title, now); break;
-    case 'message_chunk': if (data.content) { state.currentAiContent += data.content; renderAiContent(state.currentAiContent); } break;
-    case 'message_done': if (data.conversation_id) state.conversationId = data.conversation_id; break;
-    case 'error': addLogEntry('error', '✗', data.message || 'エラー', now); break;
-    case 'system': addLogEntry('system', '◎', data.message, now); break;
-  }
-}
-
-async function toggleRecording() {
-  const btn = document.getElementById('btn-record');
-  if (state.mediaRecorder && state.mediaRecorder.state === 'recording') {
-    state.mediaRecorder.stop();
-    btn.textContent = '🎙️ 録音開始';
-    btn.classList.remove('recording');
-    return;
-  }
-  try {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    state.recordingChunks = [];
-    state.mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm;codecs=opus' });
-    state.mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) state.recordingChunks.push(e.data); };
-    state.mediaRecorder.onstop = () => {
-      state.audioBlob = new Blob(state.recordingChunks, { type: 'audio/webm' });
-      audioStatus.textContent = `録音完了 (${(state.audioBlob.size / 1024 / 1024).toFixed(2)}MB) — 送信ボタンで処理開始`;
-      stream.getTracks().forEach(t => t.stop());
-    };
-    state.mediaRecorder.start();
-    btn.textContent = '⏹ 録音停止';
-    btn.classList.add('recording');
-    audioStatus.textContent = '録音中...';
-  } catch(err) { audioStatus.textContent = `マイクアクセスエラー: ${err.message}`; }
-}
-
-function handleAudioFile(input) {
-  const file = input.files[0];
-  if (!file) return;
-  state.audioBlob = file;
-  audioStatus.textContent = `ファイル: ${file.name} (${(file.size / 1024 / 1024).toFixed(2)}MB) — 送信ボタンで処理開始`;
-}
-
-function addMessage(role, content) {
-  const div = document.createElement('div');
-  div.className = `message ${role}`;
-  div.innerHTML = `<div class="msg-role">${role === 'user' ? 'あなた' : 'MyAI'}</div><div class="msg-bubble">${escapeHtml(content)}</div>`;
-  chatEl.appendChild(div);
-  chatEl.scrollTop = chatEl.scrollHeight;
-  if (!content) div.querySelector('.msg-bubble').innerHTML = '<div class="typing-indicator"><span></span><span></span><span></span></div>';
-  return div;
-}
-
-function updateAiMessage(content) { if (state.currentAiMessageEl) state.currentAiMessageEl.textContent = content; }
-
-function renderAiContent(content) {
-  if (!state.currentAiMessageEl) return;
-  const el = state.currentAiMessageEl;
-  el.innerHTML = '';
-  const parts = content.split(/(<think>[\s\S]*?<\/think>)/);
-  for (const part of parts) {
-    const m = part.match(/^<think>([\s\S]*?)<\/think>$/);
-    if (m) { const d = document.createElement('div'); d.className = 'think'; d.textContent = '🤔 ' + m[1].trim(); el.appendChild(d); }
-    else if (part) {
-      const lines = part.split('\n');
-      for (let i = 0; i < lines.length; i++) { el.appendChild(document.createTextNode(lines[i])); if (i < lines.length - 1) el.appendChild(document.createElement('br')); }
-    }
-  }
-  chatEl.scrollTop = chatEl.scrollHeight;
-}
-
-function addLogEntry(cls, icon, text, time, elapsed, nodeId) {
-  const existing = nodeId ? logEl.querySelector(`[data-node="${nodeId}"]`) : null;
-  const div = existing || document.createElement('div');
-  const ph = logEl.querySelector('.log-placeholder');
-  if (ph) ph.remove();
-  div.className = `log-entry ${cls}`;
-  if (nodeId) div.dataset.node = nodeId;
-  div.innerHTML = `<span class="log-icon">${icon}</span>${time ? `<span class="log-time">${time}</span>` : ''}<span class="log-text">${escapeHtml(String(text || ''))}</span>${elapsed ? `<span class="log-elapsed">${elapsed}</span>` : ''}`;
-  if (!existing) logEl.appendChild(div);
-  logEl.scrollTop = logEl.scrollHeight;
-}
-
-function clearLog() { logEl.innerHTML = ''; }
-
-function newChat() {
-  state.messages = []; state.conversationId = null; state.currentAiMessageEl = null; state.currentAiContent = ''; state.audioBlob = null;
-  audioStatus.textContent = '音声なし (テキスト入力も使用可)';
-  chatEl.innerHTML = '<div class="message ai"><div class="msg-role">MyAI</div><div class="msg-bubble">新しい会話を始めます。何でもお聞きください！</div></div>';
-  logEl.innerHTML = '<div class="log-placeholder">エージェント実行時に<br>ノードの処理状況が<br>ここに表示されます</div>';
-}
-
-function setLoading(v) {
-  state.isLoading = v;
-  inputEl.disabled = v;
-  sendBtn.style.display = v ? 'none' : 'flex';
-  stopBtn.style.display = v ? 'flex' : 'none';
-}
-
-function stopGeneration() { if (state.abortController) { state.abortController.abort(); state.abortController = null; } }
-
-function escapeHtml(str) { return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
-
-switchAgent('chat');
-checkHealth();
-loadModels();
-setInterval(checkHealth, 30000);
-</script>
+  <script src="./app.js"></script>
 </body>
 </html>

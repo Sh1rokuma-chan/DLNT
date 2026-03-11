@@ -1,5 +1,5 @@
 /**
- * MyAI Agent Dashboard v2 - バックエンドサーバー
+ * MyAI Agent Dashboard v3 - バックエンドサーバー
  *
  * 3エージェント対応:
  *   research  → 調査エージェント (advanced-chat + SearXNG検索)
@@ -486,7 +486,7 @@ app.delete('/api/conversations/:id', (req, res) => {
 const server = app.listen(PORT, '0.0.0.0', () => {
   console.log('');
   console.log('  ╔══════════════════════════════════════════╗');
-  console.log('  ║   MyAI Agent Dashboard v2                ║');
+  console.log('  ║   MyAI Agent Dashboard v3                ║');
   console.log('  ╚══════════════════════════════════════════╝');
   console.log(`  → http://localhost:${PORT}`);
   console.log(`  Ollama:   ${OLLAMA_URL}`);
