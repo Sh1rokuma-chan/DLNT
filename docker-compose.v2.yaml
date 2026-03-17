@@ -1,0 +1,163 @@
+# ============================================================
+# DLNT v2 — Docker Compose
+# ============================================================
+# 起動: docker compose -f docker-compose.v2.yaml up -d
+# アクセス:
+#   http://localhost/         → DLNT v2 React SPA
+#   http://localhost/api/     → FastAPI
+#   http://localhost:19999/   → Netdata
+#   Ollama: ホスト側 localhost:11434 (Docker管理外)
+# ============================================================
+
+services:
+
+  # ─────────────────────────────────────────────────────────
+  # API Server (FastAPI)
+  # ─────────────────────────────────────────────────────────
+  api:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://dlnt:${DB_PASSWORD:-changeme}@postgres:5432/dlnt
+      REDIS_URL: redis://redis:6379
+      OLLAMA_URL: http://host.docker.internal:11434
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-gpt-oss:20b}
+      SEARXNG_URL: http://searxng:8080
+      WHISPER_URL: http://whisper-api:8000
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    volumes:
+      - ${DLNT_DOCS_DIR:-~/dlnt-docs}:/mnt/user/documents
+      - ${HOME}/Desktop:/mnt/user/desktop
+      - agent-workspace:/app/workspace
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - frontend-net
+      - backend-net
+
+  # ─────────────────────────────────────────────────────────
+  # Frontend (React SPA — Viteビルド済み静的ファイル)
+  # ─────────────────────────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    networks:
+      - frontend-net
+
+  # ─────────────────────────────────────────────────────────
+  # PostgreSQL 16 + pgvector
+  # ─────────────────────────────────────────────────────────
+  postgres:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: dlnt
+      POSTGRES_USER: dlnt
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-changeme}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dlnt"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - backend-net
+
+  # ─────────────────────────────────────────────────────────
+  # Redis 7
+  # ─────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redis-data:/data
+    networks:
+      - backend-net
+
+  # ─────────────────────────────────────────────────────────
+  # SearXNG (ローカルWeb検索エンジン)
+  # ─────────────────────────────────────────────────────────
+  searxng:
+    image: searxng/searxng:latest
+    restart: unless-stopped
+    volumes:
+      - ./searxng:/etc/searxng
+    environment:
+      SEARXNG_SECRET_KEY: ${SEARXNG_SECRET_KEY:-dlnt-searxng-secret-2026}
+      BASE_URL: http://localhost/search/
+    networks:
+      - backend-net
+
+  # ─────────────────────────────────────────────────────────
+  # Whisper API (faster-whisper, CPU)
+  # ─────────────────────────────────────────────────────────
+  whisper-api:
+    image: fedirz/faster-whisper-server:latest-cpu
+    restart: unless-stopped
+    environment:
+      WHISPER__MODEL: ${WHISPER_MODEL:-small}
+      WHISPER__LANGUAGE: ja
+    networks:
+      - backend-net
+
+  # ─────────────────────────────────────────────────────────
+  # Caddy (リバースプロキシ)
+  # ─────────────────────────────────────────────────────────
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+      - "8443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - frontend
+      - api
+    networks:
+      - frontend-net
+
+  # ─────────────────────────────────────────────────────────
+  # Netdata (リソース監視)
+  # ─────────────────────────────────────────────────────────
+  netdata:
+    image: netdata/netdata:stable
+    restart: unless-stopped
+    pid: host
+    ports:
+      - "19999:19999"
+    cap_add:
+      - SYS_PTRACE
+      - SYS_ADMIN
+    security_opt:
+      - apparmor:unconfined
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    environment:
+      NETDATA_DISABLE_CLOUD: 1
+
+networks:
+  frontend-net:
+    driver: bridge
+  backend-net:
+    driver: bridge
+
+volumes:
+  pgdata:
+  redis-data:
+  caddy-data:
+  caddy-config:
+  agent-workspace:

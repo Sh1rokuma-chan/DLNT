@@ -1,0 +1,60 @@
+# shell_exec ツール 許可コマンドリスト
+# このリストにないコマンドは拒否される
+
+allowed:
+  # ファイル操作 (読み取り系)
+  - ls
+  - cat
+  - head
+  - tail
+  - find
+  - wc
+  - sort
+  - uniq
+  - diff
+
+  # テキスト処理
+  - grep
+  - awk
+  - sed
+  - jq
+  - yq
+
+  # システム情報
+  - pwd
+  - date
+  - env
+  - echo
+  - which
+
+  # Git
+  - git
+
+  # Python
+  - python
+  - python3
+  - pip
+  - pip3
+
+  # ネットワーク (読み取り系)
+  - curl
+  - wget
+
+# 明示的拒否 (上記に含まれていても常に拒否)
+deny_patterns:
+  - "rm "
+  - "rm\t"
+  - sudo
+  - chmod
+  - chown
+  - kill
+  - pkill
+  - "> /"
+  - ">> /"
+  - "; rm"
+  - "&& rm"
+  - "| rm"
+  - "dd if"
+  - mkfs
+  - fdisk
+  - ":(){ :|:& };:"  # fork bomb

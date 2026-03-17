@@ -1,0 +1,23 @@
+# DLNT v2 Caddyfile
+# docker compose -f docker-compose.v2.yaml up で起動
+# ポート 8080 (HTTP) / 8443 (HTTPS)
+
+:80 {
+    # API (WebSocket含む)
+    handle /api/* {
+        reverse_proxy api:8000
+    }
+
+    # WebSocket チャット
+    handle /ws/* {
+        reverse_proxy api:8000 {
+            header_up Connection {http.upgrade}
+            header_up Upgrade {http.upgrade}
+        }
+    }
+
+    # フロントエンド SPA (全てindex.htmlにフォールバック)
+    handle {
+        reverse_proxy frontend:80
+    }
+}
