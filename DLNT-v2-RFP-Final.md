@@ -816,8 +816,3 @@ dlnt-v2/
 │
 └── searxng/
     └── settings.yml
-```
-
----
-
-*以上。本ドキュメントをClaude Codeに渡し、Phase 1から順次実装を開始せよ。*
