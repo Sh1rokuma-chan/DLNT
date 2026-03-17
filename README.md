@@ -167,3 +167,30 @@ docker compose restart agent-ui
 ## 📋 CREDENTIALS
 
 初期パスワード等は `CREDENTIALS.md` を参照してください。
+
+---
+
+## 🔌 Phase 1 疎通確認手順（`/chat/stream`）
+
+FastAPI 側で `api/app/routers/chat.py` のルーターをアプリに登録した状態で、以下の手順で Ollama ストリーミング中継を確認できます。
+
+### 1) curl で SSE ストリーム確認
+
+```bash
+curl -N -X POST http://localhost:8000/chat/stream \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "model": "gpt-oss:20b",
+    "messages": [
+      {"role": "user", "content": "短く自己紹介してください"}
+    ]
+  }'
+```
+
+`data: ...` がトークン単位で連続出力され、最後に `event: done` / `data: [DONE]` が返れば成功です。
+
+### 2) 簡易 WebSocket クライアント（任意）
+
+本フェーズ実装は SSE (`POST /chat/stream`) です。WebSocketで確認したい場合は、
+フロント側で SSE を受ける簡易クライアントを使って同等にストリーム表示してください。
+
