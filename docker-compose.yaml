@@ -11,6 +11,42 @@
 services:
 
   # ─────────────────────────────────────────────────────────
+  # PostgreSQL (pgvector 対応)
+  # ─────────────────────────────────────────────────────────
+  postgres:
+    image: pgvector/pgvector:pg16
+    restart: always
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-app}
+      POSTGRES_USER: ${POSTGRES_USER:-app}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-app}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-app} -d ${POSTGRES_DB:-app}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - backend-net
+
+  # ─────────────────────────────────────────────────────────
+  # FastAPI (バックエンドAPI)
+  # ─────────────────────────────────────────────────────────
+  api:
+    image: tiangolo/uvicorn-gunicorn-fastapi:python3.11
+    restart: always
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql://app:app@postgres:5432/app}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - backend-net
+
+  # ─────────────────────────────────────────────────────────
   # SearXNG (ローカルWeb検索エンジン)
   # ─────────────────────────────────────────────────────────
   searxng:
@@ -137,6 +173,7 @@ networks:
 # Volumes
 # ─────────────────────────────────────────────────────────
 volumes:
+  postgres-data:
   open-webui-data:
   agent-ui-data:
   netdata-config:
