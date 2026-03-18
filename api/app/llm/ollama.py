@@ -61,12 +61,17 @@ class OllamaProvider:
     async def _chat_llamacpp(
         self, messages: list[dict], stream: bool = True
     ) -> AsyncIterator[str]:
-        """llama.cpp /v1/chat/completions でストリーミング"""
+        """llama.cpp /v1/chat/completions でストリーミング
+
+        Qwen3.5 等の thinking model は reasoning_content と content を
+        別フィールドで返す。既存の ReAct エンジンが <think> タグをパースする
+        ため、reasoning_content を <think>...</think> に変換して yield する。
+        """
         payload = {
             "model": self.model,
             "messages": messages,
             "stream": stream,
-            "max_tokens": 4096,
+            "max_tokens": 8192,
         }
 
         async with httpx.AsyncClient(timeout=self.timeout) as client:
@@ -77,8 +82,14 @@ class OllamaProvider:
                 )
                 resp.raise_for_status()
                 data = resp.json()
-                content = data["choices"][0]["message"]["content"]
-                yield content
+                msg = data["choices"][0]["message"]
+                reasoning = msg.get("reasoning_content", "")
+                content = msg.get("content", "") or ""
+                # thinking model: reasoning_content を <think> タグで包む
+                if reasoning:
+                    yield f"<think>{reasoning}</think>\n{content}"
+                else:
+                    yield content
                 return
 
             async with client.stream(
@@ -87,6 +98,7 @@ class OllamaProvider:
                 json=payload,
             ) as response:
                 response.raise_for_status()
+                in_reasoning = False
                 async for line in response.aiter_lines():
                     line = line.strip()
                     if not line:
@@ -95,14 +107,29 @@ class OllamaProvider:
                         continue
                     data_str = line[6:]
                     if data_str == "[DONE]":
+                        if in_reasoning:
+                            yield "</think>\n"
                         return
                     try:
                         data = json.loads(data_str)
                     except json.JSONDecodeError:
                         continue
                     delta = data.get("choices", [{}])[0].get("delta", {})
+
+                    # thinking model: reasoning_content → <think> タグ
+                    reasoning = delta.get("reasoning_content", "")
+                    if reasoning:
+                        if not in_reasoning:
+                            in_reasoning = True
+                            yield "<think>"
+                        yield reasoning
+                        continue
+
                     content = delta.get("content", "")
                     if content:
+                        if in_reasoning:
+                            in_reasoning = False
+                            yield "</think>\n"
                         yield content
 
     async def _chat_complete_llamacpp(self, messages: list[dict]) -> str:
