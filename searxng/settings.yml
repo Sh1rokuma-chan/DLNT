@@ -1,0 +1,13 @@
+# SearXNG 設定 — MyAI Local Agent 向け (最小構成)
+use_default_settings: true
+
+server:
+  secret_key: "${SEARXNG_SECRET_KEY}"
+  bind_address: "0.0.0.0"
+
+search:
+  safe_search: 0
+  default_lang: "ja"
+  formats:
+    - html
+    - json

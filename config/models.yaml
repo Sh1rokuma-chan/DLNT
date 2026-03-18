@@ -1,0 +1,31 @@
+# DLNT モデル設定
+# 現在: 全エージェントが同一モデルを使用
+# 将来: エージェントごとにモデルを指定可能
+
+available_models:
+  - name: gpt-oss:20b
+    label: GPT-OSS 20B (デフォルト)
+  - name: qwen3.5:35b-a3b
+    label: Qwen3.5 35B-A3B (HauhauCS カスタム / セーフガード解除)
+    # セーフガード解除済みカスタムモデル。制約なしで最も柔軟な応答が可能。
+    # Ollama では qwen35moe 未サポート。llama.cpp b8398+ (CPU) で動作。
+    # ./dlnt.sh up でランチャー起動後、モデル選択時にオンデマンド自動起動 (port 11435)。
+
+models:
+  default: gpt-oss:20b
+  agents:
+    scout: gpt-oss:20b
+    coder: gpt-oss:20b
+    archivist: gpt-oss:20b
+    scribe: gpt-oss:20b
+
+ollama:
+  base_url: http://host.docker.internal:11434
+  timeout: 120
+  # Ollamaは1モデルをメモリ保持。別モデル呼び出し時スワップが発生する
+  # 24GBで20b(13GB)の余裕: ~11GB
+
+embedding:
+  model: intfloat/multilingual-e5-small
+  dimension: 384
+  # CPU推論 ~100ms/文 (sentence-transformers)

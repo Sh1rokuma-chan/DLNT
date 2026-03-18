@@ -1,0 +1,20 @@
+# DLNT Caddyfile
+# docker compose up で起動
+# ポート 8080 (HTTP) / 8443 (HTTPS)
+
+:80 {
+    # API (WebSocket含む)
+    handle /api/* {
+        reverse_proxy api:8000
+    }
+
+    # WebSocket チャット (Caddy2はWebSocketを自動プロキシ)
+    handle /ws/* {
+        reverse_proxy api:8000
+    }
+
+    # フロントエンド SPA (全てindex.htmlにフォールバック)
+    handle {
+        reverse_proxy frontend:80
+    }
+}
