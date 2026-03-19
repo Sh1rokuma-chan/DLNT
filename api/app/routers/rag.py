@@ -3,14 +3,14 @@ import uuid
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.db.models import Workspace
 from app.db.session import get_db
-from app.rag.indexer import index_directory
+from app.rag.indexer import index_directory_subprocess
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -33,10 +33,9 @@ class IndexResponse(BaseModel):
 @router.post("/index", response_model=IndexResponse)
 async def trigger_index(
     body: IndexRequest,
-    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
 ):
-    """RAGインデックスをバックグラウンドで構築"""
+    """RAGインデックスをサブプロセスで実行"""
     workspace_id = body.workspace_id
     directory = body.directory or settings.documents_path
 
@@ -57,19 +56,26 @@ async def trigger_index(
             await db.refresh(ws)
         workspace_id = ws.id
 
-    async def _do_index():
-        from app.db.session import async_session_factory
-        async with async_session_factory() as session:
-            count = await index_directory(
-                session, directory, workspace_id, clear_existing=body.clear_existing
-            )
-            logger.info("バックグラウンドインデックス完了: %d チャンク", count)
+    result = await index_directory_subprocess(
+        directory, workspace_id, clear_existing=body.clear_existing
+    )
 
-    background_tasks.add_task(_do_index)
+    if "error" in result:
+        logger.error("インデックスエラー: %s", result["error"])
+        return IndexResponse(
+            status="error",
+            workspace_id=str(workspace_id),
+            directory=directory,
+            message=f"エラー: {result['error']}",
+        )
+
+    total = result.get("total_chunks", 0)
+    embedded = result.get("total_embedded", 0)
+    logger.info("インデックス完了: %d チャンク, %d embedded", total, embedded)
 
     return IndexResponse(
-        status="indexing",
+        status="completed",
         workspace_id=str(workspace_id),
         directory=directory,
-        message=f"バックグラウンドでインデックス化を開始しました: {directory}",
+        message=f"インデックス完了: {total} チャンク ({embedded} embedded)",
     )

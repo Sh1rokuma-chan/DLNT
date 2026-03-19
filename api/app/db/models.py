@@ -68,7 +68,7 @@ class Embedding(Base):
     source_ref: Mapped[Optional[str]] = mapped_column(Text)
     chunk_index: Mapped[int] = mapped_column(Integer, default=0)
     content: Mapped[str] = mapped_column(Text, nullable=False)
-    embedding: Mapped[Optional[list]] = mapped_column(Vector(384))
+    embedding: Mapped[Optional[list]] = mapped_column(Vector(768))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     workspace: Mapped[Optional[Workspace]] = relationship(back_populates="embeddings")

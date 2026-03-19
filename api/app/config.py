@@ -31,9 +31,9 @@ class Settings(BaseSettings):
     documents_path: str = "/mnt/user/documents"
     workspace_path: str = "/app/workspace"
 
-    # Embedding model (384-dim, multilingual)
-    embedding_model: str = "intfloat/multilingual-e5-small"
-    embedding_dim: int = 384
+    # Embedding model (Ollama)
+    embedding_model: str = "nomic-embed-text"
+    embedding_dim: int = 768
 
     # Logging
     log_level: str = "info"

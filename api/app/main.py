@@ -19,6 +19,8 @@ async def lifespan(app: FastAPI):
     logger.info("DLNT API 起動中...")
     await init_db()
     logger.info("DB接続完了")
+    # ドキュメントインデックスは API 経由で手動トリガー
+    # POST /api/rag/index で実行可能
     yield
     logger.info("DLNT API 停止")
 

@@ -64,7 +64,7 @@ CREATE TABLE IF NOT EXISTS embeddings (
     source_ref TEXT,
     chunk_index INTEGER DEFAULT 0,
     content TEXT NOT NULL,
-    embedding vector(384),
+    embedding vector(768),
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 

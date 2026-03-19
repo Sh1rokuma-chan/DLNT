@@ -1,5 +1,4 @@
 """RAG検索 — pgvectorコサイン類似度検索"""
-import asyncio
 import logging
 import uuid
 from dataclasses import dataclass
@@ -36,7 +35,7 @@ async def search(
     Returns: スコア降順のSearchResultリスト
     """
     # クエリをエンベディング
-    vec = await asyncio.get_event_loop().run_in_executor(None, embed_text, query)
+    vec = await embed_text(query)
     if vec is None:
         logger.warning("エンベディング失敗。テキスト検索にフォールバック")
         return await _fallback_search(db, query, workspace_id, scope, limit)
@@ -58,10 +57,10 @@ async def search(
     where = " AND ".join(conditions)
     sql = text(f"""
         SELECT source_type, source_ref, chunk_index, content,
-               1 - (embedding <=> :vec::vector) AS score
+               1 - (embedding <=> CAST(:vec AS vector)) AS score
         FROM embeddings
         WHERE {where}
-        ORDER BY embedding <=> :vec::vector
+        ORDER BY embedding <=> CAST(:vec AS vector)
         LIMIT :limit
     """)
 

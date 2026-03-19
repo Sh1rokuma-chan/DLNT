@@ -1,15 +1,15 @@
 """RAGインデクサー — ファイルをチャンク化してpgvectorに保存"""
 import asyncio
+import gc
+import json
 import logging
-import os
 import uuid
 from pathlib import Path
-from typing import AsyncIterator
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Embedding
-from app.rag.embedder import embed_batch
+from app.rag.embedder import embed_text
 
 logger = logging.getLogger(__name__)
 
@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 SUPPORTED_EXTENSIONS = {
     '.txt', '.md', '.py', '.js', '.ts', '.json', '.csv',
     '.yaml', '.yml', '.toml', '.rst', '.html', '.xml',
+    '.pdf',
 }
 
 # チャンク設定
@@ -35,101 +36,79 @@ def _chunk_text(text: str, size: int = CHUNK_SIZE, overlap: int = CHUNK_OVERLAP)
         chunk = text[start:end]
         if chunk.strip():
             chunks.append(chunk)
-        start = end - overlap
-        if start >= len(text):
+        if end == len(text):
             break
+        start = end - overlap
     return chunks
 
 
 def _read_file(path: Path) -> str | None:
-    """ファイルを読み込む。失敗時はNone。"""
+    """ファイルを読み込む。PDF はテキスト抽出。失敗時はNone。"""
     try:
+        if path.suffix.lower() == '.pdf':
+            return _read_pdf(path)
         return path.read_text(encoding='utf-8', errors='replace')
     except Exception as e:
         logger.warning("ファイル読み込み失敗 %s: %s", path, e)
         return None
 
 
-async def index_directory(
-    db: AsyncSession,
+def _read_pdf(path: Path) -> str | None:
+    """PDFからテキストを抽出する"""
+    try:
+        import fitz  # pymupdf
+        doc = fitz.open(str(path))
+        pages = []
+        for page in doc:
+            text = page.get_text()
+            if text.strip():
+                pages.append(text)
+        doc.close()
+        return "\n\n".join(pages) if pages else None
+    except Exception as e:
+        logger.warning("PDF読み込み失敗 %s: %s", path, e)
+        return None
+
+
+async def index_directory_subprocess(
     directory: str,
     workspace_id: uuid.UUID,
     clear_existing: bool = False,
-) -> int:
+) -> dict:
     """
-    指定ディレクトリ以下のサポートファイルをインデックス化。
-    Returns: インデックスしたチャンク数
+    サブプロセスでインデックスを実行。
+    uvicorn プロセスのメモリ OOM を回避するため、
+    別プロセスで DB 操作 + エンベディングを行う。
     """
-    from sqlalchemy import delete
+    args = json.dumps({
+        "directory": directory,
+        "workspace_id": str(workspace_id),
+        "clear_existing": clear_existing,
+    })
 
-    if clear_existing:
-        await db.execute(
-            delete(Embedding)
-            .where(Embedding.workspace_id == workspace_id)
-            .where(Embedding.source_type == 'file')
-        )
-        await db.commit()
+    proc = await asyncio.create_subprocess_exec(
+        "python", "-m", "app.rag.index_worker", args,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
 
-    root = Path(directory)
-    if not root.exists():
-        logger.warning("ディレクトリが存在しません: %s", directory)
-        return 0
+    stdout, stderr = await proc.communicate()
 
-    total_chunks = 0
-    files = [
-        p for p in root.rglob('*')
-        if p.is_file() and p.suffix.lower() in SUPPORTED_EXTENSIONS
-    ]
-    logger.info("%d ファイルをインデックス化 (workspace=%s)", len(files), workspace_id)
+    if proc.returncode != 0:
+        stderr_text = stderr.decode().strip()
+        logger.error("index_worker 失敗 (exit %d): %s", proc.returncode, stderr_text[-500:])
+        return {"error": f"Worker failed (exit {proc.returncode})", "stderr": stderr_text[-500:]}
 
-    BATCH = 32
-    pending_embeddings: list[Embedding] = []
-    pending_texts: list[str] = []
-
-    for file_path in files:
-        content = _read_file(file_path)
-        if not content:
+    # stdout の最後の行が JSON 結果
+    stdout_text = stdout.decode().strip()
+    lines = stdout_text.split('\n')
+    for line in reversed(lines):
+        try:
+            return json.loads(line)
+        except json.JSONDecodeError:
             continue
 
-        rel_path = str(file_path.relative_to(root))
-        chunks = _chunk_text(content)
-
-        for i, chunk in enumerate(chunks):
-            pending_texts.append(chunk)
-            pending_embeddings.append(Embedding(
-                workspace_id=workspace_id,
-                source_type='file',
-                source_ref=rel_path,
-                chunk_index=i,
-                content=chunk,
-                embedding=None,
-            ))
-
-            if len(pending_texts) >= BATCH:
-                vecs = await asyncio.get_event_loop().run_in_executor(
-                    None, embed_batch, pending_texts
-                )
-                for emb, vec in zip(pending_embeddings, vecs):
-                    if vec:
-                        emb.embedding = vec
-                    db.add(emb)
-                await db.commit()
-                total_chunks += len(pending_embeddings)
-                pending_texts.clear()
-                pending_embeddings.clear()
-
-    # 残り
-    if pending_texts:
-        vecs = await asyncio.get_event_loop().run_in_executor(None, embed_batch, pending_texts)
-        for emb, vec in zip(pending_embeddings, vecs):
-            if vec:
-                emb.embedding = vec
-            db.add(emb)
-        await db.commit()
-        total_chunks += len(pending_embeddings)
-
-    logger.info("インデックス完了: %d チャンク (workspace=%s)", total_chunks, workspace_id)
-    return total_chunks
+    return {"error": "No JSON output from worker", "stdout": stdout_text[-500:]}
 
 
 async def index_message(
@@ -140,10 +119,9 @@ async def index_message(
 ) -> None:
     """会話メッセージをRAGインデックスに追加"""
     chunks = _chunk_text(content, size=400, overlap=50)
-    texts = [c for c in chunks]
-    vecs = await asyncio.get_event_loop().run_in_executor(None, embed_batch, texts)
 
-    for i, (chunk, vec) in enumerate(zip(chunks, vecs)):
+    for i, chunk in enumerate(chunks):
+        vec = await embed_text(chunk)
         emb = Embedding(
             workspace_id=workspace_id,
             source_type='message',
